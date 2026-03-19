@@ -1,105 +1,151 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
+const SIDEBAR_WIDTH = 'w-60';
+
+const navigation = [
+  {
+    group: 'Overview',
+    items: [
+      { name: 'Dashboard', href: '/' },
+    ],
+  },
+  {
+    group: 'Student Records',
+    items: [
+      { name: 'Internship Overview', href: '/internships' },
+      { name: 'Student Record Edit', href: '/mentor-edit' },
+      { name: 'Random Student Picker', href: '/picker' },
+    ],
+  },
+  {
+    group: 'Group Management',
+    items: [
+      { name: 'Group Generator', href: '/groups' },
+      { name: 'All Groups', href: '/all-groups' },
+    ],
+  },
+  {
+    group: 'Mentors',
+    items: [
+      { name: 'Mentor Directory', href: '/all-mentors' },
+    ],
+  },
+  {
+    group: 'Analytics',
+    items: [
+      { name: 'Company-wise Analysis', href: '/analytics' },
+    ],
+  },
+  {
+    group: 'Data Import',
+    items: [
+      { name: 'Upload Excel Data', href: '/upload' },
+    ],
+  },
+];
+
 const Layout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const location = useLocation();
 
-  const navigation = [
-    { name: 'Dashboard', href: '/', icon: '📊' },
-    { name: 'Internships', href: '/internships', icon: '📝' },
-    { name: 'Upload Excel', href: '/upload', icon: '📤' },
-    { name: 'Mentor Edit', href: '/mentor-edit', icon: '✏️' },
-    { name: 'Group Generator', href: '/groups', icon: '👥' },
-    { name: 'Student Picker', href: '/picker', icon: '🎲' },
-    { name: 'Analytics', href: '/analytics', icon: '📈' },
-    { name: 'Advanced Analytics', href: '/advanced-analytics', icon: '📉' },
-  ];
+  const isActive = (href) =>
+    href === '/' ? location.pathname === '/' : location.pathname.startsWith(href);
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Sidebar */}
-      <div
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-primary-900 text-white transform transition-transform duration-300 ease-in-out ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+    <div className="min-h-screen bg-surface-page flex">
+      {/* ---- Sidebar ---- */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 ${SIDEBAR_WIDTH} bg-sidebar-bg flex flex-col
+          transform transition-transform duration-200 ease-in-out
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
-        <div className="flex items-center justify-between p-4 border-b border-primary-800">
-          <h1 className="text-xl font-bold">SPIT Internships</h1>
+        {/* Brand */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+          <div>
+            <span className="text-base font-bold text-white tracking-wide">SPIT</span>
+            <p className="text-xs text-slate-400 mt-0.5 leading-tight">
+              Training &amp; Placement Office
+            </p>
+          </div>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="lg:hidden text-white hover:text-gray-300"
+            className="lg:hidden text-slate-400 hover:text-white p-1 rounded"
+            aria-label="Close sidebar"
           >
-            ✕
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
-        <nav className="mt-4">
-          {navigation.map((item) => {
-            const isActive = location.pathname === item.href;
-            return (
-              <Link
-                key={item.name}
-                to={item.href}
-                className={`flex items-center px-4 py-3 text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-primary-800 text-white border-l-4 border-white'
-                    : 'text-primary-100 hover:bg-primary-800 hover:text-white'
-                }`}
-              >
-                <span className="mr-3 text-xl">{item.icon}</span>
-                {item.name}
-              </Link>
-            );
-          })}
-        </nav>
-      </div>
 
-      {/* Main content */}
-      <div
-        className={`transition-all duration-300 ${
-          sidebarOpen ? 'lg:ml-64' : 'ml-0'
-        }`}
-      >
-        {/* Header */}
-        <header className="bg-white shadow-sm">
-          <div className="flex items-center justify-between px-4 py-4">
+        {/* Nav groups */}
+        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
+          {navigation.map((section) => (
+            <div key={section.group}>
+              <p className="px-3 mb-1 text-xs font-semibold text-slate-500 uppercase tracking-widest">
+                {section.group}
+              </p>
+              <ul className="space-y-0.5">
+                {section.items.map((item) => {
+                  const active = isActive(item.href);
+                  return (
+                    <li key={item.name}>
+                      <Link
+                        to={item.href}
+                        className={`flex items-center px-3 py-2 rounded text-sm font-medium transition-colors
+                          ${active
+                            ? 'bg-accent-600 text-white'
+                            : 'text-slate-300 hover:bg-sidebar-hover hover:text-white'
+                          }`}
+                      >
+                        {item.name}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
+
+        {/* Footer */}
+        <div className="px-5 py-3 border-t border-slate-700">
+          <p className="text-xs text-slate-500">Internship Analysis Portal</p>
+          <p className="text-xs text-slate-600">Academic Year 2025–26</p>
+        </div>
+      </aside>
+
+      {/* ---- Main area ---- */}
+      <div className={`flex-1 flex flex-col min-h-screen transition-all duration-200 ${sidebarOpen ? 'lg:ml-60' : 'ml-0'}`}>
+        {/* Top bar */}
+        <header className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between h-12 px-6">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="text-gray-600 hover:text-gray-900"
+              className="text-gray-500 hover:text-gray-800 p-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Toggle sidebar"
             >
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 6h16M4 12h16M4 18h16"
-                />
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <div className="text-right">
-              <p className="text-sm font-medium text-gray-900">
-                SPIT Internship Portal
-              </p>
-              <p className="text-xs text-gray-500">
-                Management & Analytics System
-              </p>
-            </div>
+            <span className="text-sm text-gray-500 font-medium">
+              Internship Analysis Portal &mdash; Administrative View
+            </span>
           </div>
         </header>
 
         {/* Page content */}
-        <main className="p-6">{children}</main>
+        <main className="flex-1 p-6 overflow-auto">
+          {children}
+        </main>
       </div>
 
-      {/* Mobile sidebar backdrop */}
+      {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}

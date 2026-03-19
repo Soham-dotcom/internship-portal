@@ -8,7 +8,6 @@ router.get('/', async (req, res) => {
     const {
       branch,
       company,
-      status,
       mentor,
       type,
       startDate,
@@ -21,7 +20,6 @@ router.get('/', async (req, res) => {
 
     if (branch) query['branch'] = new RegExp(`^${branch}$`, 'i'); // case-insensitive exact match
     if (company) query['companyName'] = new RegExp(company, 'i');
-    if (status) query['status'] = new RegExp(`^${status}$`, 'i'); // case-insensitive exact match
     if (mentor) query['externalMentorName'] = new RegExp(mentor, 'i');
     if (type) query['internshipType'] = new RegExp(`^${type}$`, 'i'); // case-insensitive exact match
     if (uid) query['uid'] = new RegExp(uid, 'i');
@@ -81,14 +79,52 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE internship
+// DELETE internship with cascade safety
 router.delete('/:id', async (req, res) => {
   try {
-    const internship = await Internship.findByIdAndDelete(req.params.id);
+    // Find the student first to get their details
+    const internship = await Internship.findById(req.params.id);
+    
     if (!internship) {
       return res.status(404).json({ success: false, message: 'Internship not found' });
     }
-    res.json({ success: true, message: 'Internship deleted successfully' });
+
+    // Store student info for cascade operations
+    const studentId = internship._id;
+    const assignedGroupName = internship.assignedGroup;
+
+    // DELETE the student from database
+    await Internship.findByIdAndDelete(req.params.id);
+
+    // CASCADE: Remove student from Group documents if assigned
+    if (assignedGroupName) {
+      const Group = require('../models/Group');
+      
+      // Remove student from group's students array
+      await Group.updateMany(
+        { students: studentId },
+        { $pull: { students: studentId } }
+      );
+
+      // Clean up empty groups
+      await Group.deleteMany({
+        $or: [
+          { students: { $exists: false } },
+          { students: { $size: 0 } },
+          { students: null }
+        ]
+      });
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Student removed successfully from all records',
+      deletedStudent: {
+        name: internship.name,
+        uid: internship.uid,
+        wasInGroup: !!assignedGroupName
+      }
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

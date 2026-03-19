@@ -1,40 +1,29 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import Card from '../components/Card';
 import {
   BarChart,
   Bar,
-  PieChart,
-  Pie,
-  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
 } from 'recharts';
 import { getSummaryStats, getAnalyticsSummary } from '../api/axios';
-
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 const Dashboard = () => {
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalCompanies: 0,
-    completedInternships: 0,
-    pendingApprovals: 0,
     branchWiseCount: [],
   });
   const [analytics, setAnalytics] = useState({
     companies: [],
-    branches: [],
-    status: [],
+    techDistribution: null,
   });
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     try {
@@ -42,14 +31,8 @@ const Dashboard = () => {
         getSummaryStats(),
         getAnalyticsSummary(),
       ]);
-
-      if (statsRes.data.success) {
-        setStats(statsRes.data.data);
-      }
-
-      if (analyticsRes.data.success) {
-        setAnalytics(analyticsRes.data.data);
-      }
+      if (statsRes.data.success) setStats(statsRes.data.data);
+      if (analyticsRes.data.success) setAnalytics(analyticsRes.data.data);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
@@ -57,139 +40,195 @@ const Dashboard = () => {
     }
   };
 
-  const branchData = stats.branchWiseCount.map((item) => ({
-    name: item._id,
-    value: item.count,
-  }));
-
-  const companyData = analytics.companies.slice(0, 10).map((item) => ({
-    name: item._id,
-    students: item.count,
-  }));
-
-  const statusData = analytics.status.map((item) => ({
-    name: item._id,
-    value: item.count,
-  }));
-
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="loading-spinner">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading dashboard...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
+          <p className="mt-3 text-sm text-gray-500">Loading dashboard data...</p>
         </div>
       </div>
     );
   }
 
+  const branchChartData = stats.branchWiseCount.map((item) => ({
+    branch: item._id,
+    students: item.count,
+  }));
+
+  const companyChartData = analytics.companies.slice(0, 10).map((item) => ({
+    company: item._id,
+    students: item.count,
+  }));
+
+  const totalWithProfile =
+    (analytics.techDistribution?.tech ?? 0) +
+    (analytics.techDistribution?.nonTech ?? 0);
+
+  const techPct =
+    totalWithProfile > 0
+      ? `${((analytics.techDistribution.tech / totalWithProfile) * 100).toFixed(1)}% of profiled`
+      : null;
+
+  const nonTechPct =
+    totalWithProfile > 0
+      ? `${((analytics.techDistribution.nonTech / totalWithProfile) * 100).toFixed(1)}% of profiled`
+      : null;
+
+  const avgPerCompany =
+    stats.totalCompanies > 0
+      ? (stats.totalStudents / stats.totalCompanies).toFixed(1)
+      : 'N/A';
+
+  const techNonTechRatio =
+    analytics.techDistribution?.nonTech > 0
+      ? `${(analytics.techDistribution.tech / analytics.techDistribution.nonTech).toFixed(2)} : 1`
+      : 'N/A';
+
+  const techNonTechData = [
+    { category: 'Tech Roles', count: analytics.techDistribution?.tech ?? 0 },
+    { category: 'Non-Tech Roles', count: analytics.techDistribution?.nonTech ?? 0 },
+  ];
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <p className="mt-2 text-gray-600">
-          Overview of internship statistics and analytics
+    <div className="page-container">
+      {/* Page header */}
+      <div className="page-header">
+        <h1 className="page-title">Dashboard</h1>
+        <p className="page-subtitle">
+          Summary statistics and internship data overview — Academic Year 2025–26
         </p>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card
-          title="Total Students"
-          value={stats.totalStudents}
-          icon="👨‍🎓"
-          color="blue"
-        />
-        <Card
-          title="Total Companies"
-          value={stats.totalCompanies}
-          icon="🏢"
-          color="green"
-        />
-        <Card
-          title="Completed"
-          value={stats.completedInternships}
-          icon="✅"
-          color="purple"
-        />
-        <Card
-          title="Pending"
-          value={stats.pendingApprovals}
-          icon="⏳"
-          color="yellow"
-        />
+      {/* KPI row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card title="Total Students"   value={stats.totalStudents}                       accent="border-blue-600" />
+        <Card title="Companies"        value={stats.totalCompanies}                      accent="border-slate-500" />
+        <Card title="Tech Roles"       value={analytics.techDistribution?.tech ?? 0}    subtitle={techPct}    accent="border-blue-500" />
+        <Card title="Non-Tech Roles"   value={analytics.techDistribution?.nonTech ?? 0} subtitle={nonTechPct} accent="border-amber-500" />
       </div>
 
-      {/* Charts */}
+      {/* Secondary KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <Card title="Avg. Students per Company" value={avgPerCompany}         accent="border-gray-400" />
+        <Card title="Active Branches"           value={branchChartData.length} accent="border-gray-400" />
+        <Card title="Tech / Non-Tech Ratio"     value={techNonTechRatio}       accent="border-gray-400" />
+      </div>
+
+      {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Company-wise Hiring */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Top Companies Hiring
-          </h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={companyData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="students" fill="#3b82f6" />
-            </BarChart>
-          </ResponsiveContainer>
+        {/* Branch-wise distribution */}
+        <div className="section-card">
+          <div className="section-card-header">
+            <h2 className="section-title">Branch-wise Student Distribution</h2>
+            <p className="text-xs text-gray-500 mt-0.5">{stats.totalStudents} total students across all branches</p>
+          </div>
+          <div className="section-card-body">
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={branchChartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
+                <XAxis
+                  dataKey="branch"
+                  tick={{ fontSize: 12, fill: '#6B7280' }}
+                  axisLine={{ stroke: '#D1D5DB' }}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 12, fill: '#6B7280' }}
+                  axisLine={false}
+                  tickLine={false}
+                  label={{ value: 'Students', angle: -90, position: 'insideLeft', offset: 10, style: { fontSize: 11, fill: '#9CA3AF' } }}
+                />
+                <Tooltip
+                  contentStyle={{ border: '1px solid #E5E7EB', borderRadius: 4, fontSize: 13 }}
+                  formatter={(v) => [`${v} students`, 'Count']}
+                />
+                <Bar dataKey="students" fill="#2563EB" radius={[2, 2, 0, 0]} maxBarSize={48} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
 
-        {/* Branch Distribution */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Branch Distribution
-          </h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={branchData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) =>
-                  `${name} ${(percent * 100).toFixed(0)}%`
-                }
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {branchData.map((entry, index) => (
-                  <Cell
-                    key={`cell-${index}`}
-                    fill={COLORS[index % COLORS.length]}
-                  />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Status Distribution */}
-        <div className="bg-white rounded-lg shadow-md p-6 lg:col-span-2">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Internship Status
-          </h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={statusData} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" />
-              <YAxis dataKey="name" type="category" width={100} />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="value" fill="#10b981" />
-            </BarChart>
-          </ResponsiveContainer>
+        {/* Tech vs Non-Tech */}
+        <div className="section-card">
+          <div className="section-card-header">
+            <h2 className="section-title">Tech vs. Non-Tech Role Distribution</h2>
+            <p className="text-xs text-gray-500 mt-0.5">{totalWithProfile} students with role profile data</p>
+          </div>
+          <div className="section-card-body">
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={techNonTechData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
+                <XAxis
+                  dataKey="category"
+                  tick={{ fontSize: 13, fill: '#374151' }}
+                  axisLine={{ stroke: '#D1D5DB' }}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 12, fill: '#6B7280' }}
+                  axisLine={false}
+                  tickLine={false}
+                  label={{ value: 'Students', angle: -90, position: 'insideLeft', offset: 10, style: { fontSize: 11, fill: '#9CA3AF' } }}
+                />
+                <Tooltip
+                  contentStyle={{ border: '1px solid #E5E7EB', borderRadius: 4, fontSize: 13 }}
+                  formatter={(v) => [`${v} students`, 'Count']}
+                />
+                <Bar dataKey="count" maxBarSize={80} radius={[2, 2, 0, 0]} fill="#2563EB" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
+
+      {/* Top 10 companies */}
+      {companyChartData.length > 0 && (
+        <div className="section-card">
+          <div className="section-card-header">
+            <h2 className="section-title">Top Companies by Student Count</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Top 10 companies ranked by number of students placed</p>
+          </div>
+          <div className="section-card-body">
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart
+                data={companyChartData}
+                layout="vertical"
+                margin={{ top: 4, right: 40, left: 8, bottom: 4 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" horizontal={false} />
+                <XAxis
+                  type="number"
+                  tick={{ fontSize: 12, fill: '#6B7280' }}
+                  axisLine={{ stroke: '#D1D5DB' }}
+                  tickLine={false}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="company"
+                  width={160}
+                  tick={{ fontSize: 12, fill: '#374151' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  contentStyle={{ border: '1px solid #E5E7EB', borderRadius: 4, fontSize: 13 }}
+                  formatter={(v) => [`${v} students`, 'Count']}
+                />
+                <Bar
+                  dataKey="students"
+                  fill="#2563EB"
+                  radius={[0, 2, 2, 0]}
+                  maxBarSize={24}
+                  label={{ position: 'right', fontSize: 12, fill: '#374151' }}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default Dashboard;
-

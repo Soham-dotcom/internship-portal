@@ -1,12 +1,40 @@
 node_modules/
+
+# Environment files
 .env
-.DS_Store
+.env.*
+!.env.example
+
+# Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
 dist/
 build/
+coverage/
+
+# Runtime uploads / temp
 uploads/
+tmp/
+temp/
+
+# IDE / OS files
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
+
+
+
+
+
+
+
+
 
 
 
