@@ -1,6 +1,15 @@
-import React, { useState } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { importData, downloadTemplate } from '../api/axios';
+import { 
+  importData, 
+  downloadTemplate, 
+  importExternalMentors, 
+  getExternalMentors, 
+  downloadExternalMentorTemplate,
+  importInternalMentors,
+  getInternalMentors,
+  downloadInternalMentorTemplate
+} from '../api/axios';
 
 const ExcelUpload = () => {
   const [file, setFile] = useState(null);
@@ -9,294 +18,465 @@ const ExcelUpload = () => {
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
 
+  const [externalMentorFile, setExternalMentorFile] = useState(null);
+  const [parsedExternalMentors, setParsedExternalMentors] = useState([]);
+  const [externalMentorLoading, setExternalMentorLoading] = useState(false);
+  const [externalMentorImporting, setExternalMentorImporting] = useState(false);
+  const [externalMentorMessage, setExternalMentorMessage] = useState({ type: '', text: '' });
+  const [externalMentorList, setExternalMentorList] = useState([]);
+  const [loadingExternalMentorList, setLoadingExternalMentorList] = useState(false);
+
+  const [internalMentorFile, setInternalMentorFile] = useState(null);
+  const [parsedInternalMentors, setParsedInternalMentors] = useState([]);
+  const [internalMentorLoading, setInternalMentorLoading] = useState(false);
+  const [internalMentorImporting, setInternalMentorImporting] = useState(false);
+  const [internalMentorMessage, setInternalMentorMessage] = useState({ type: '', text: '' });
+  const [internalMentorList, setInternalMentorList] = useState([]);
+  const [loadingInternalMentorList, setLoadingInternalMentorList] = useState(false);
+
+  useEffect(() => { fetchExternalMentors(); fetchInternalMentors(); }, []);
+
+  const fetchExternalMentors = async () => {
+    setLoadingExternalMentorList(true);
+    try {
+      const response = await getExternalMentors();
+      if (response.data.success) setExternalMentorList(response.data.data);
+    } catch (error) { console.error('Error fetching external mentors:', error); }
+    finally { setLoadingExternalMentorList(false); }
+  };
+
+  const fetchInternalMentors = async () => {
+    setLoadingInternalMentorList(true);
+    try {
+      const response = await getInternalMentors();
+      if (response.data.success) setInternalMentorList(response.data.data);
+    } catch (error) { console.error('Error fetching internal mentors:', error); }
+    finally { setLoadingInternalMentorList(false); }
+  };
+
+  const validateFile = (selectedFile, setMsg) => {
+    const validTypes = ['.xlsx', '.xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'];
+    const ext = selectedFile.name.substring(selectedFile.name.lastIndexOf('.')).toLowerCase();
+    if (!validTypes.includes(ext) && !validTypes.includes(selectedFile.type)) {
+      setMsg({ type: 'error', text: 'Please upload a valid Excel file (.xlsx or .xls)' });
+      return false;
+    }
+    if (selectedFile.size > 5 * 1024 * 1024) {
+      setMsg({ type: 'error', text: 'File size exceeds 5MB limit' });
+      return false;
+    }
+    return true;
+  };
+
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      setMessage({ type: '', text: '' });
-    }
+    if (selectedFile && validateFile(selectedFile, setMessage)) { setFile(selectedFile); setMessage({ type: '', text: '' }); }
+    else if (selectedFile) setFile(null);
   };
 
   const handleParseFile = () => {
-    if (!file) {
-      setMessage({ type: 'error', text: 'Please select a file first' });
-      return;
-    }
-
+    if (!file) { setMessage({ type: 'error', text: 'Please select a file first' }); return; }
     setLoading(true);
     const reader = new FileReader();
-
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(worksheet);
-
-        // Map to internship schema - NEW FORMAT
-        const mapped = json.map((row) => ({
-          email: row['Email'] || row['email'] || row['Student Email'] || '',
-          name: row['Name'] || row['name'] || row['Student Name'] || '',
-          uid: row['UID'] || row['uid'] || row['Roll No'] || '',
-          branch: row['Branch'] || row['branch'] || '',
-          internshipType: row['Internship Type'] || row['internshipType'] || row['type'] || 'Off-Campus',
-          companyName: row['Company Name'] || row['companyName'] || row['company'] || '',
-          externalMentorName: row['External Mentor Name'] || row['externalMentorName'] || row['Mentor Name'] || '',
-          startDate: row['Start Date'] || row['startDate'] || new Date(),
-          endDate: row['End Date'] || row['endDate'] || new Date(),
-          documentLink: row['Document Link'] || row['documentLink'] || '',
-          status: row['Status'] || row['status'] || 'pending',
-          stipend: row['Stipend'] || row['stipend'] || '',
-          companyLocation: row['Company Location'] || row['companyLocation'] || '',
-          internshipTitle: row['Internship Title'] || row['internshipTitle'] || '',
-          remarks: row['Remarks'] || row['remarks'] || '',
-          submittedAt: row['Submitted At'] || new Date()
-        }));
-
+        if (json.length === 0) { setMessage({ type: 'error', text: 'Excel file is empty' }); setLoading(false); return; }
+        const mapped = json.map((row, idx) => {
+          if (!row['UID'] && !row['uid']) console.warn(`Row ${idx + 1}: Missing UID`);
+          return {
+            email: row['Institute Email ID'] || row['Personal Email ID'] || row['Email'] || row['email'] || '',
+            name: row['Name'] || row['name'] || row['Student Name'] || '',
+            uid: row['UID'] || row['uid'] || row['Roll No'] || '',
+            branch: row['Branch'] || row['branch'] || '',
+            internshipType: row['Internship Type'] || row['internshipType'] || '8th Sem',
+            companyName: row['8th Sem Internship Offer'] || row['Company Name'] || row['companyName'] || row['company'] || row['Placement Offer'] || '',
+            externalMentorName: row['External Mentor Name'] || row['externalMentorName'] || '',
+            startDate: row['Start Date'] || row['startDate'] || new Date(),
+            endDate: row['End Date'] || row['endDate'] || new Date(),
+            documentLink: row['8th Sem Internship Offer Letter'] || row['Document Link'] || row['documentLink'] || '',
+            companyLocation: row['Company Location'] || row['companyLocation'] || '',
+            internshipTitle: row['Role'] || row['Profile'] || row['Internship Title'] || row['internshipTitle'] || '',
+            stipend: row['8th Sem Internship Stipend'] || row['Stipend'] || row['stipend'] || '',
+            gender: row['Gender'] || row['gender'] || '',
+            phone: row['Mobile No.'] || row['Phone'] || row['phone'] || '',
+            ctc: row['CTC (LPA)'] || row['CTC'] || row['ctc'] || '',
+            placementOffer: row['Placement Offer'] || row['placementOffer'] || '',
+            remarks: row['Remarks'] || row['remarks'] || '',
+            submittedAt: row['Submitted At'] || new Date()
+          };
+        }).filter(item => item.uid && item.companyName);
         setParsedData(mapped);
-        setMessage({
-          type: 'success',
-          text: `Successfully parsed ${mapped.length} records`,
-        });
-      } catch (error) {
-        setMessage({ type: 'error', text: 'Error parsing file: ' + error.message });
-      } finally {
-        setLoading(false);
-      }
+        setMessage({ type: 'success', text: `Parsed ${mapped.length} valid records from ${json.length} rows.` });
+      } catch (error) { setMessage({ type: 'error', text: 'Error parsing file: ' + error.message }); }
+      finally { setLoading(false); }
     };
-
     reader.readAsArrayBuffer(file);
   };
 
   const handleImport = async () => {
-    if (parsedData.length === 0) {
-      setMessage({ type: 'error', text: 'No data to import' });
-      return;
-    }
-
+    if (parsedData.length === 0) { setMessage({ type: 'error', text: 'No data to import' }); return; }
     setImporting(true);
     try {
-      const response = await importData({ internships: parsedData });
+      const response = await importData(parsedData);
       if (response.data.success) {
-        let messageText = response.data.message;
-        
-        // Add detailed breakdown
-        if (response.data.inserted !== undefined && response.data.updated !== undefined) {
-          messageText += `\n\n📊 Breakdown:`;
-          messageText += `\n✅ ${response.data.inserted} new records created`;
-          messageText += `\n🔄 ${response.data.updated} existing records updated`;
-          if (response.data.failed > 0) {
-            messageText += `\n❌ ${response.data.failed} records failed`;
-          }
+        let text = response.data.message;
+        if (response.data.inserted !== undefined) {
+          text += `\n${response.data.inserted} new records created, ${response.data.updated} updated`;
+          if (response.data.failed > 0) text += `, ${response.data.failed} failed`;
         }
-        
-        // Add error details if some records failed
-        if (response.data.errors && response.data.errors.length > 0) {
-          messageText += '\n\n⚠️ Errors:\n' + response.data.errors.join('\n');
-        }
-        
-        setMessage({
-          type: response.data.failed > 0 ? 'warning' : 'success',
-          text: messageText,
-        });
-        
-        // Clear data after successful import (even if some failed)
-        setParsedData([]);
-        setFile(null);
+        if (response.data.errors?.length > 0) text += '\nErrors:\n' + response.data.errors.join('\n');
+        setMessage({ type: response.data.failed > 0 ? 'warning' : 'success', text });
+        setParsedData([]); setFile(null);
       }
     } catch (error) {
-      setMessage({
-        type: 'error',
-        text: 'Error importing data: ' + (error.response?.data?.message || error.message),
-      });
-    } finally {
-      setImporting(false);
-    }
+      setMessage({ type: 'error', text: 'Error importing data: ' + (error.response?.data?.message || error.message) });
+    } finally { setImporting(false); }
   };
 
   const handleDownloadTemplate = async () => {
     try {
       const response = await downloadTemplate();
       const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
+      const link = document.createElement('a'); link.href = url;
       link.setAttribute('download', 'internship_template.xlsx');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error) {
-      setMessage({
-        type: 'error',
-        text: 'Error downloading template: ' + error.message,
-      });
-    }
+      document.body.appendChild(link); link.click(); link.remove();
+    } catch (error) { setMessage({ type: 'error', text: 'Error downloading template: ' + error.message }); }
   };
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Upload Excel File</h1>
-        <p className="mt-2 text-gray-600">
-          Import student internship records from Excel file
-        </p>
+  const handleExternalMentorFileChange = (e) => {
+    const f = e.target.files[0];
+    if (f && validateFile(f, setExternalMentorMessage)) { setExternalMentorFile(f); setExternalMentorMessage({ type: '', text: '' }); }
+    else if (f) setExternalMentorFile(null);
+  };
+
+  const parseMentorFile = (fileObj, setLoading, setData, setMsg) => {
+    if (!fileObj) { setMsg({ type: 'error', text: 'Please select a file first' }); return; }
+    setLoading(true);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+        if (json.length === 0) { setMsg({ type: 'error', text: 'Excel file is empty' }); setLoading(false); return; }
+        const mapped = json.map(row => ({
+          name: row['Name'] || row['name'] || row['Mentor Name'] || row['Full Name'] || '',
+          email: row['Email'] || row['email'] || row['Gmail'] || row['gmail'] || row['Mentor Email'] || row['E-mail'] || '',
+        })).filter(item => item.name && item.email);
+        setData(mapped);
+        setMsg({ type: mapped.length === 0 ? 'error' : 'success', text: mapped.length === 0 ? 'No valid records found. Ensure columns "Name" and "Email" exist.' : `Parsed ${mapped.length} records.` });
+      } catch (error) { setMsg({ type: 'error', text: 'Error parsing file: ' + error.message }); }
+      finally { setLoading(false); }
+    };
+    reader.readAsArrayBuffer(fileObj);
+  };
+
+  const handleParseExternalMentorFile = () => parseMentorFile(externalMentorFile, setExternalMentorLoading, setParsedExternalMentors, setExternalMentorMessage);
+
+  const handleImportExternalMentors = async () => {
+    if (parsedExternalMentors.length === 0) { setExternalMentorMessage({ type: 'error', text: 'No data to import' }); return; }
+    setExternalMentorImporting(true);
+    try {
+      const response = await importExternalMentors(parsedExternalMentors);
+      if (response.data.success) {
+        let text = response.data.message;
+        if (response.data.inserted !== undefined) text += `\n${response.data.inserted} added, ${response.data.updated} updated${response.data.failed > 0 ? `, ${response.data.failed} failed` : ''}`;
+        setExternalMentorMessage({ type: response.data.failed > 0 ? 'warning' : 'success', text });
+        setParsedExternalMentors([]); setExternalMentorFile(null); fetchExternalMentors();
+      }
+    } catch (error) {
+      setExternalMentorMessage({ type: 'error', text: 'Error importing: ' + (error.response?.data?.message || error.message) });
+    } finally { setExternalMentorImporting(false); }
+  };
+
+  const handleDownloadExternalMentorTemplate = async () => {
+    try {
+      const response = await downloadExternalMentorTemplate();
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a'); link.href = url;
+      link.setAttribute('download', 'external_mentor_template.xlsx');
+      document.body.appendChild(link); link.click(); link.remove();
+    } catch (error) { setExternalMentorMessage({ type: 'error', text: 'Error downloading template: ' + error.message }); }
+  };
+
+  const handleInternalMentorFileChange = (e) => {
+    const f = e.target.files[0];
+    if (f && validateFile(f, setInternalMentorMessage)) { setInternalMentorFile(f); setInternalMentorMessage({ type: '', text: '' }); }
+    else if (f) setInternalMentorFile(null);
+  };
+
+  const handleParseInternalMentorFile = () => parseMentorFile(internalMentorFile, setInternalMentorLoading, setParsedInternalMentors, setInternalMentorMessage);
+
+  const handleImportInternalMentors = async () => {
+    if (parsedInternalMentors.length === 0) { setInternalMentorMessage({ type: 'error', text: 'No data to import' }); return; }
+    setInternalMentorImporting(true);
+    try {
+      const response = await importInternalMentors(parsedInternalMentors);
+      if (response.data.success) {
+        let text = response.data.message;
+        if (response.data.inserted !== undefined) text += `\n${response.data.inserted} added, ${response.data.updated} updated${response.data.failed > 0 ? `, ${response.data.failed} failed` : ''}`;
+        setInternalMentorMessage({ type: response.data.failed > 0 ? 'warning' : 'success', text });
+        setParsedInternalMentors([]); setInternalMentorFile(null); fetchInternalMentors();
+      }
+    } catch (error) {
+      setInternalMentorMessage({ type: 'error', text: 'Error importing: ' + (error.response?.data?.message || error.message) });
+    } finally { setInternalMentorImporting(false); }
+  };
+
+  const handleDownloadInternalMentorTemplate = async () => {
+    try {
+      const response = await downloadInternalMentorTemplate();
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a'); link.href = url;
+      link.setAttribute('download', 'internal_mentor_template.xlsx');
+      document.body.appendChild(link); link.click(); link.remove();
+    } catch (error) { setInternalMentorMessage({ type: 'error', text: 'Error downloading template: ' + error.message }); }
+  };
+
+  const UploadSection = ({ title, subtitle, templateLabel, fileInputLabel, onDownloadTemplate, fileState, onFileChange, onParse, isParsing, parseLabel, parsedRows, previewColumns, onImport, isImporting, importLabel, alertMsg, existingList, existingLoading, existingLabel }) => (
+    <div className="section-card">
+      <div className="section-card-header">
+        <h2 className="section-title">{title}</h2>
+        <p className="text-sm text-gray-500">{subtitle}</p>
       </div>
+      <div className="section-card-body space-y-6">
+        {alertMsg.text && (
+          <div className={`alert-${alertMsg.type === 'success' ? 'success' : alertMsg.type === 'warning' ? 'warning' : 'error'}`}>
+            <div className="whitespace-pre-wrap">{alertMsg.text}</div>
+          </div>
+        )}
 
-      {/* Message */}
-      {message.text && (
-        <div
-          className={`p-4 rounded-lg ${
-            message.type === 'success'
-              ? 'bg-green-100 text-green-800'
-              : message.type === 'warning'
-              ? 'bg-yellow-100 text-yellow-800'
-              : 'bg-red-100 text-red-800'
-          }`}
-        >
-          <div className="whitespace-pre-wrap">{message.text}</div>
-        </div>
-      )}
-
-      {/* Upload Section */}
-      <div className="bg-white rounded-lg shadow-md p-6 space-y-6">
+        {/* Step 1 */}
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Step 1: Download Template
-          </h2>
-          <p className="text-gray-600 mb-4">
-            Download the Excel template to see the required format and column headers.
-          </p>
-          <button
-            onClick={handleDownloadTemplate}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            📥 Download Excel Template
-          </button>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 1 — Download Template</p>
+          <p className="text-sm text-gray-600 mb-3">Download the Excel template to see the required column format.</p>
+          <button onClick={onDownloadTemplate} className="btn-secondary">{templateLabel}</button>
         </div>
 
-        <hr />
+        <hr className="border-gray-100" />
 
+        {/* Step 2 */}
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Step 2: Upload Your File
-          </h2>
-          <div className="flex items-center space-x-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 2 — Upload File</p>
+          <label className="form-label">{fileInputLabel}</label>
+          <div className="flex gap-3 items-start flex-wrap">
             <input
               type="file"
               accept=".xlsx,.xls"
-              onChange={handleFileChange}
-              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
+              onChange={onFileChange}
+              className="block text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border file:border-gray-300 file:text-sm file:bg-white file:text-gray-700 hover:file:bg-gray-50 cursor-pointer"
             />
-            <button
-              onClick={handleParseFile}
-              disabled={!file || loading}
-              className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Parsing...' : 'Parse File'}
+            <button onClick={onParse} disabled={!fileState || isParsing} className="btn-primary">
+              {isParsing ? 'Parsing...' : (parseLabel || 'Parse File')}
             </button>
           </div>
-          {file && (
-            <p className="mt-2 text-sm text-gray-600">
-              Selected: {file.name} ({(file.size / 1024).toFixed(2)} KB)
-            </p>
-          )}
+          {fileState && <p className="mt-1.5 text-xs text-gray-500">{fileState.name} ({(fileState.size / 1024).toFixed(1)} KB)</p>}
         </div>
 
-        {parsedData.length > 0 && (
+        {/* Step 3 */}
+        {parsedRows.length > 0 && (
           <>
-            <hr />
-
+            <hr className="border-gray-100" />
             <div>
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">
-                Step 3: Preview & Import
-              </h2>
-              <p className="text-gray-600 mb-4">
-                Found {parsedData.length} records. Review and click Import to add them
-                to the database.
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 3 — Preview & Import</p>
+              <p className="text-sm text-gray-600 mb-3">
+                {parsedRows.length} records ready to import.
+                {parsedRows.length > 10 ? ` Showing first 10 of ${parsedRows.length}.` : ''}
               </p>
-
-              {/* Preview Table */}
-              <div className="overflow-x-auto mb-4 max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50 sticky top-0">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                        Name
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                        UID
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                        Branch
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                        Company
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                        Type
-                      </th>
-                    </tr>
+              <div className="overflow-x-auto max-h-64 overflow-y-auto rounded border border-gray-200 mb-4">
+                <table className="data-table">
+                  <thead>
+                    <tr>{previewColumns.map(col => <th key={col.key}>{col.label}</th>)}</tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {parsedData.slice(0, 10).map((item, index) => (
-                      <tr key={index} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 text-sm text-gray-900">
-                          {item.name}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-900">
-                          {item.uid}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-900">
-                          {item.branch}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-900">
-                          {item.companyName}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-900">
-                          {item.internshipType}
-                        </td>
-                      </tr>
+                  <tbody>
+                    {parsedRows.slice(0, 10).map((row, i) => (
+                      <tr key={i}>{previewColumns.map(col => <td key={col.key}>{row[col.key]}</td>)}</tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-
-              {parsedData.length > 10 && (
-                <p className="text-sm text-gray-500 mb-4">
-                  Showing first 10 of {parsedData.length} records
-                </p>
-              )}
-
-              <button
-                onClick={handleImport}
-                disabled={importing}
-                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                {importing ? 'Importing...' : '✓ Import to Database'}
+              <button onClick={onImport} disabled={isImporting} className="btn-primary">
+                {isImporting ? 'Importing...' : (importLabel || 'Import to Database')}
               </button>
             </div>
           </>
         )}
+
+        <hr className="border-gray-100" />
+
+        {/* Existing Records List */}
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{existingLabel} ({existingList.length})</p>
+          {existingLoading ? (
+            <div className="flex items-center gap-2 text-sm text-gray-500"><div className="loading-spinner"></div> Loading records...</div>
+          ) : existingList.length > 0 ? (
+            <div className="overflow-x-auto max-h-64 overflow-y-auto rounded border border-gray-200">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    {previewColumns.map(col => <th key={col.key}>{col.label}</th>)}
+                    <th>Added On</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {existingList.map((item, i) => (
+                    <tr key={item._id}>
+                      <td>{i + 1}</td>
+                      {previewColumns.map(col => <td key={col.key}>{item[col.key]}</td>)}
+                      <td>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">No records found. Upload a file to import records.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="page-container">
+      {/* Page Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Upload Excel Data</h1>
+          <p className="page-subtitle">Import student internship records and mentor data from Excel files</p>
+        </div>
       </div>
 
-      {/* Instructions */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-blue-900 mb-3">
-          📋 Instructions
-        </h3>
-        <ul className="space-y-2 text-blue-800">
-          <li>• Download the template to see the exact column format required</li>
-          <li>• Ensure all required fields are filled (Name, Email, UID, Branch, Company, etc.)</li>
-          <li>• Branch must be: COMPS, EXTC, CSE, MCA, AIML, IT, MECH, or ETRX</li>
-          <li>• Internship Type: Off-Campus, On-Campus, College-Arranged, or Self-Arranged</li>
-          <li>• Status must be: pending, approved, in-progress, completed, or rejected</li>
-          <li>• Dates should be in standard date format (e.g., 2025-01-01)</li>
-          <li>• UID format: 10-digit number (e.g., 2021200044)</li>
-        </ul>
+      {/* Section 1 — Student Data */}
+      <div className="section-card mb-6">
+        <div className="section-card-header">
+          <h2 className="section-title">Student Internship Records</h2>
+          <p className="text-sm text-gray-500">Import student data from Excel (.xlsx / .xls, max 5 MB)</p>
+        </div>
+        <div className="section-card-body space-y-6">
+          {message.text && (
+            <div className={`alert-${message.type === 'success' ? 'success' : message.type === 'warning' ? 'warning' : 'error'}`}>
+              <div className="whitespace-pre-wrap">{message.text}</div>
+            </div>
+          )}
+
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 1 — Download Template</p>
+            <p className="text-sm text-gray-600 mb-3">Download the template to see required column headers and format.</p>
+            <button onClick={handleDownloadTemplate} className="btn-secondary">Download Student Data Template</button>
+          </div>
+
+          <hr className="border-gray-100" />
+
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 2 — Upload File</p>
+            <label className="form-label">Select Excel File</label>
+            <div className="flex gap-3 items-start flex-wrap">
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleFileChange}
+                className="block text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border file:border-gray-300 file:text-sm file:bg-white file:text-gray-700 hover:file:bg-gray-50 cursor-pointer"
+              />
+              <button onClick={handleParseFile} disabled={!file || loading} className="btn-primary">
+                {loading ? 'Parsing...' : 'Parse File'}
+              </button>
+            </div>
+            {file && <p className="mt-1.5 text-xs text-gray-500">{file.name} ({(file.size / 1024).toFixed(1)} KB)</p>}
+          </div>
+
+          {parsedData.length > 0 && (
+            <>
+              <hr className="border-gray-100" />
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 3 — Preview & Import</p>
+                <p className="text-sm text-gray-600 mb-3">
+                  {parsedData.length} valid records ready.{parsedData.length > 10 ? ` Showing first 10 of ${parsedData.length}.` : ''}
+                </p>
+                <div className="overflow-x-auto max-h-64 overflow-y-auto rounded border border-gray-200 mb-4">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th><th>UID</th><th>Branch</th><th>Company</th><th>Type</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parsedData.slice(0, 10).map((item, i) => (
+                        <tr key={i}>
+                          <td>{item.name}</td><td>{item.uid}</td>
+                          <td><span className="badge badge-blue">{item.branch}</span></td>
+                          <td>{item.companyName}</td><td>{item.internshipType}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button onClick={handleImport} disabled={importing} className="btn-primary">
+                  {importing ? 'Importing...' : 'Import to Database'}
+                </button>
+              </div>
+            </>
+          )}
+
+          <hr className="border-gray-100" />
+          <div className="alert-info">
+            <strong>Format requirements:</strong> UID is required. Branch must be COMPS, EXTC, CSE, MCA, AIML, IT, MECH, or ETRX. Rows without UID and Company will be skipped. Max file size 5 MB.
+          </div>
+        </div>
+      </div>
+
+      {/* Section 2 — External Mentors */}
+      <UploadSection
+        title="External Mentors (Industry)"
+        subtitle="Import external company mentors from Excel"
+        templateLabel="Download External Mentor Template"
+        fileInputLabel="Select Excel File"
+        onDownloadTemplate={handleDownloadExternalMentorTemplate}
+        fileState={externalMentorFile}
+        onFileChange={handleExternalMentorFileChange}
+        onParse={handleParseExternalMentorFile}
+        isParsing={externalMentorLoading}
+        parsedRows={parsedExternalMentors}
+        previewColumns={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email' }]}
+        onImport={handleImportExternalMentors}
+        isImporting={externalMentorImporting}
+        importLabel="Import External Mentors"
+        alertMsg={externalMentorMessage}
+        existingList={externalMentorList}
+        existingLoading={loadingExternalMentorList}
+        existingLabel="Current External Mentors"
+      />
+
+      {/* Section 3 — Internal Mentors */}
+      <div className="mt-6">
+        <UploadSection
+          title="Internal Mentors (Faculty)"
+          subtitle="Import internal college faculty mentors from Excel"
+          templateLabel="Download Internal Mentor Template"
+          fileInputLabel="Select Excel File"
+          onDownloadTemplate={handleDownloadInternalMentorTemplate}
+          fileState={internalMentorFile}
+          onFileChange={handleInternalMentorFileChange}
+          onParse={handleParseInternalMentorFile}
+          isParsing={internalMentorLoading}
+          parsedRows={parsedInternalMentors}
+          previewColumns={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email' }]}
+          onImport={handleImportInternalMentors}
+          isImporting={internalMentorImporting}
+          importLabel="Import Internal Mentors"
+          alertMsg={internalMentorMessage}
+          existingList={internalMentorList}
+          existingLoading={loadingInternalMentorList}
+          existingLabel="Current Internal Mentors"
+        />
       </div>
     </div>
   );
 };
 
 export default ExcelUpload;
-
