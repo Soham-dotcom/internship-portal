@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const Internship = require('../models/Internship');
+const { getYearDb } = require('../db/connection');
+const { getInternshipModel } = require('../models/Internship');
 
 // GET mentor's interns
 router.get('/internships', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const { mentorName } = req.query;
     
     let query = {};
@@ -22,6 +24,7 @@ router.get('/internships', async (req, res) => {
 // PUT update internship by mentor
 router.put('/:id', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const internship = await Internship.findByIdAndUpdate(
       req.params.id,
       req.body,
@@ -41,6 +44,7 @@ router.put('/:id', async (req, res) => {
 // PUT update performance metrics
 router.put('/:id/performance', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const { performanceMetrics } = req.body;
     
     const internship = await Internship.findByIdAndUpdate(
@@ -62,6 +66,7 @@ router.put('/:id/performance', async (req, res) => {
 // POST add attendance record
 router.post('/:id/attendance', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const { date, status } = req.body;
     
     const internship = await Internship.findByIdAndUpdate(

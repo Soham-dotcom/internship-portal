@@ -53,6 +53,9 @@ const MentorEdit = () => {
     performanceMetrics: { ...editData.performanceMetrics, [field]: parseInt(value) }
   });
 
+  const formatDateInput = (value) => (value ? new Date(value).toISOString().split('T')[0] : '');
+  const formatDateTime = (value) => (value ? new Date(value).toLocaleString() : '');
+
   const handleSave = async () => {
     try {
       const res = await updateInternship(selectedInternship._id, editData);
@@ -101,8 +104,8 @@ const MentorEdit = () => {
       {/* Page Header */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">Student Record Edit</h1>
-          <p className="page-subtitle">Search and edit individual internship records</p>
+          <h1 className="page-title">Student Record Management</h1>
+          <p className="page-subtitle">Search and manage individual internship records</p>
         </div>
       </div>
 
@@ -117,7 +120,7 @@ const MentorEdit = () => {
               <label className="form-label">Search</label>
               <input
                 type="text"
-                placeholder="Name, UID, or mentor..."
+                placeholder="Name, UID, or evaluator..."
                 value={searchTerm}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 className="form-input"
@@ -131,9 +134,8 @@ const MentorEdit = () => {
                   <button
                     key={item._id}
                     onClick={() => handleSelectInternship(item)}
-                    className={`w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors ${
-                      selectedInternship?._id === item._id ? 'bg-accent-50 border-l-2 border-l-accent-600' : ''
-                    }`}
+                    className={`w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors ${selectedInternship?._id === item._id ? 'bg-accent-50 border-l-2 border-l-accent-600' : ''
+                      }`}
                   >
                     <p className="font-medium text-sm text-gray-900">{item.name}</p>
                     <p className="text-xs text-gray-500 mt-0.5">{item.companyName}</p>
@@ -151,7 +153,7 @@ const MentorEdit = () => {
             <div className="section-card">
               <div className="section-card-header flex items-center justify-between">
                 <div>
-                  <h2 className="section-title">Editing: {selectedInternship.name}</h2>
+                  <h2 className="section-title">Student Record: {selectedInternship.name}</h2>
                   <p className="text-xs text-gray-500">{selectedInternship.uid} — {selectedInternship.companyName}</p>
                 </div>
                 <button onClick={() => { setSelectedInternship(null); setSuccessMessage(''); }} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
@@ -162,19 +164,19 @@ const MentorEdit = () => {
 
                 {/* Personal Information */}
                 <fieldset>
-                  <legend className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Personal Information</legend>
+                  <legend className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Student Information</legend>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="form-label">Student Name</label>
-                      <input type="text" value={editData.name || ''} onChange={(e) => handleInputChange('name', e.target.value)} className="form-input" />
+                      <input type="text" value={editData.name || ''} readOnly className="form-input" />
                     </div>
                     <div>
                       <label className="form-label">UID</label>
-                      <input type="text" value={editData.uid || ''} onChange={(e) => handleInputChange('uid', e.target.value)} className="form-input" />
+                      <input type="text" value={editData.uid || ''} readOnly className="form-input" />
                     </div>
                     <div>
                       <label className="form-label">Email</label>
-                      <input type="email" value={editData.email || ''} onChange={(e) => handleInputChange('email', e.target.value)} className="form-input" />
+                      <input type="email" value={editData.email || ''} readOnly className="form-input" />
                     </div>
                     <div>
                       <label className="form-label">Phone</label>
@@ -182,9 +184,9 @@ const MentorEdit = () => {
                     </div>
                     <div>
                       <label className="form-label">Branch</label>
-                      <select value={editData.branch || ''} onChange={(e) => handleInputChange('branch', e.target.value)} className="form-select">
+                      <select value={editData.branch || ''} disabled className="form-select">
                         <option value="">Select Branch</option>
-                        {['COMPS','EXTC','CSE','MCA','CSE - AIML','CSE - DS','IT','MECH','ETRX'].map(b => <option key={b} value={b}>{b}</option>)}
+                        {['COMPS', 'EXTC', 'CSE', 'MCA', 'CSE - AIML', 'CSE - DS', 'IT', 'MECH', 'ETRX'].map(b => <option key={b} value={b}>{b}</option>)}
                       </select>
                     </div>
                     <div>
@@ -194,6 +196,16 @@ const MentorEdit = () => {
                         <option value="Male">Male</option>
                         <option value="Female">Female</option>
                         <option value="Other">Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="form-label">Profile</label>
+                      <select value={editData.profile || ''} onChange={(e) => handleInputChange('profile', e.target.value)} className="form-select">
+                        <option value="">Select</option>
+                        <option value="Tech">Tech</option>
+                        <option value="Non Tech">Non Tech</option>
+                        <option value="tech">tech</option>
+                        <option value="non tech">non tech</option>
                       </select>
                     </div>
                   </div>
@@ -222,7 +234,7 @@ const MentorEdit = () => {
                       <label className="form-label">Internship Type</label>
                       <select value={editData.internshipType || ''} onChange={(e) => handleInputChange('internshipType', e.target.value)} className="form-select">
                         <option value="">Select Type</option>
-                        {['Off-Campus','On-Campus','College-Arranged','Self-Arranged','8th Sem'].map(t => <option key={t} value={t}>{t}</option>)}
+                        {['Off-Campus', 'On-Campus', 'College-Arranged', 'Self-Arranged', '8th Sem'].map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </div>
                     <div>
@@ -230,7 +242,7 @@ const MentorEdit = () => {
                       <input type="text" value={editData.internshipTitle || ''} onChange={(e) => handleInputChange('internshipTitle', e.target.value)} className="form-input" />
                     </div>
                     <div>
-                      <label className="form-label">External Mentor Name</label>
+                      <label className="form-label">External Evaluator Name</label>
                       <input type="text" value={editData.externalMentorName || ''} onChange={(e) => handleInputChange('externalMentorName', e.target.value)} className="form-input" />
                     </div>
                     <div>
@@ -239,33 +251,15 @@ const MentorEdit = () => {
                     </div>
                     <div>
                       <label className="form-label">Start Date</label>
-                      <input type="date" value={editData.startDate ? new Date(editData.startDate).toISOString().split('T')[0] : ''} onChange={(e) => handleInputChange('startDate', e.target.value)} className="form-input" />
+                      <input type="date" value={formatDateInput(editData.startDate)} onChange={(e) => handleInputChange('startDate', e.target.value)} className="form-input" />
                     </div>
                     <div>
                       <label className="form-label">End Date</label>
-                      <input type="date" value={editData.endDate ? new Date(editData.endDate).toISOString().split('T')[0] : ''} onChange={(e) => handleInputChange('endDate', e.target.value)} className="form-input" />
+                      <input type="date" value={formatDateInput(editData.endDate)} onChange={(e) => handleInputChange('endDate', e.target.value)} className="form-input" />
                     </div>
                   </div>
                 </fieldset>
 
-                {/* Financial Details */}
-                <fieldset>
-                  <legend className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Compensation & Placement</legend>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="form-label">Stipend (Rs.)</label>
-                      <input type="text" value={editData.stipend || ''} onChange={(e) => handleInputChange('stipend', e.target.value)} className="form-input" />
-                    </div>
-                    <div>
-                      <label className="form-label">CTC (LPA)</label>
-                      <input type="text" value={editData.ctc || ''} onChange={(e) => handleInputChange('ctc', e.target.value)} className="form-input" />
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="form-label">Placement Offer</label>
-                      <input type="text" value={editData.placementOffer || ''} onChange={(e) => handleInputChange('placementOffer', e.target.value)} className="form-input" />
-                    </div>
-                  </div>
-                </fieldset>
 
                 {/* Documentation */}
                 <fieldset>
@@ -280,27 +274,90 @@ const MentorEdit = () => {
                   </div>
                 </fieldset>
 
-                {/* Performance Metrics */}
+                {/* Group Assignment */}
                 <fieldset>
-                  <legend className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Performance Metrics (1–5)</legend>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {[
-                      { key: 'communication', label: 'Communication' },
-                      { key: 'technicalSkills', label: 'Technical Skills' },
-                      { key: 'teamwork', label: 'Teamwork' },
-                      { key: 'problemSolving', label: 'Problem Solving' },
-                      { key: 'overall', label: 'Overall Rating' },
-                    ].map(({ key, label }) => (
-                      <div key={key}>
-                        <label className="form-label">{label}</label>
-                        <input
-                          type="number" min="1" max="5"
-                          value={editData.performanceMetrics?.[key] || ''}
-                          onChange={(e) => handlePerformanceChange(key, e.target.value)}
-                          className="form-input"
-                        />
-                      </div>
-                    ))}
+                  <legend className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Group Assignment</legend>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="form-label">Assigned Group (ID)</label>
+                      <input type="text" value={editData.assignedGroup || ''} readOnly className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">Assigned Group Name</label>
+                      <input type="text" value={editData.assignedGroupName || ''} readOnly className="form-input" />
+                    </div>
+                  </div>
+                </fieldset>
+
+                {/* Evaluation Matrix */}
+                <fieldset>
+                  <legend className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Evaluation Matrix</legend>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="form-label">Meeting Attended</label>
+                      <input type="number" min="0" value={editData.meeting_attended ?? ''} onChange={(e) => handleInputChange('meeting_attended', e.target.value)} className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">Weekly Reports Completed</label>
+                      <input type="number" min="0" value={editData.weekly_reports_completed ?? ''} onChange={(e) => handleInputChange('weekly_reports_completed', e.target.value)} className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">Final Report Submitted</label>
+                      <input type="number" min="0" value={editData.final_report_submitted ?? ''} onChange={(e) => handleInputChange('final_report_submitted', e.target.value)} className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">External Marks</label>
+                      <input type="number" min="0" value={editData.external_marks ?? ''} onChange={(e) => handleInputChange('external_marks', e.target.value)} className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">Viva Marks</label>
+                      <input type="number" min="0" value={editData.viva_marks ?? ''} onChange={(e) => handleInputChange('viva_marks', e.target.value)} className="form-input" />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="form-label">Weekly Report Data (read-only)</label>
+                      <textarea
+                        value={editData.weekly_report_data ? JSON.stringify(editData.weekly_report_data, null, 2) : ''}
+                        readOnly
+                        rows="4"
+                        className="form-input font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                </fieldset>
+
+
+                {/* Attendance (read-only) */}
+                <fieldset>
+                  <legend className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Attendance</legend>
+                  {Array.isArray(editData.attendance) && editData.attendance.length > 0 ? (
+                    <div className="space-y-2">
+                      {editData.attendance.map((entry, idx) => (
+                        <div key={`${entry.date || idx}`} className="text-sm text-gray-700">
+                          {formatDateTime(entry.date)} — {entry.status}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400">No attendance records.</p>
+                  )}
+                </fieldset>
+
+                {/* System Metadata (read-only) */}
+                <fieldset>
+                  <legend className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">System Metadata</legend>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="form-label">Submitted At</label>
+                      <input type="text" value={formatDateTime(editData.submittedAt)} readOnly className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">Created At</label>
+                      <input type="text" value={formatDateTime(editData.createdAt)} readOnly className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">Updated At</label>
+                      <input type="text" value={formatDateTime(editData.updatedAt)} readOnly className="form-input" />
+                    </div>
                   </div>
                 </fieldset>
 

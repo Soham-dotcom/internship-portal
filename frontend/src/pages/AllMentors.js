@@ -1,8 +1,17 @@
 ﻿import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { useLocation } from 'react-router-dom';
+import axiosInstance, { listMentorDirectory, createMentor, updateMentor } from '../api/axios';
 
 const AllMentors = () => {
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState('external');
+
+  const [mentorModalOpen, setMentorModalOpen] = useState(false);
+  const [mentorModalMode, setMentorModalMode] = useState('add'); // 'add' | 'edit'
+  const [mentorEditingId, setMentorEditingId] = useState(null);
+  const [mentorForm, setMentorForm] = useState({ name: '', email: '' });
+  const [mentorSaving, setMentorSaving] = useState(false);
+  const [mentorFormError, setMentorFormError] = useState('');
 
   const [externalMentors, setExternalMentors] = useState([]);
   const [filteredExternalMentors, setFilteredExternalMentors] = useState([]);
@@ -20,6 +29,14 @@ const AllMentors = () => {
   const mentorsPerPage = 10;
 
   useEffect(() => { fetchExternalMentors(); fetchInternalMentors(); }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const type = params.get('type');
+    if (type === 'internal' || type === 'external') {
+      setActiveTab(type);
+    }
+  }, [location.search]);
 
   useEffect(() => {
     if (externalSearchQuery.trim() === '') {
@@ -44,65 +61,154 @@ const AllMentors = () => {
   const fetchExternalMentors = async () => {
     try {
       setExternalLoading(true);
-      const response = await axios.get('http://localhost:5000/api/upload/mentors-with-details');
-      if (response.data.success) { setExternalMentors(response.data.data); setFilteredExternalMentors(response.data.data); }
+      const response = await listMentorDirectory('external');
+      if (response.data.success) {
+        setExternalMentors(response.data.data);
+        setFilteredExternalMentors(response.data.data);
+      }
     } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error loading external mentors' });
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error loading external evaluators' });
     } finally { setExternalLoading(false); }
   };
 
   const fetchInternalMentors = async () => {
     try {
       setInternalLoading(true);
-      const response = await axios.get('http://localhost:5000/api/upload/internal-mentors-with-details');
-      if (response.data.success) { setInternalMentors(response.data.data); setFilteredInternalMentors(response.data.data); }
+      const response = await listMentorDirectory('internal');
+      if (response.data.success) {
+        setInternalMentors(response.data.data);
+        setFilteredInternalMentors(response.data.data);
+      }
     } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error loading internal mentors' });
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error loading internal examiners' });
     } finally { setInternalLoading(false); }
   };
 
   const handleDeleteExternalMentor = async (mentorId, mentorName) => {
-    if (!window.confirm(`Delete External Mentor: ${mentorName}? This action cannot be undone.`)) return;
+    if (!window.confirm(`Delete External Evaluator: ${mentorName}? This action cannot be undone.`)) return;
     try {
-      const response = await axios.delete(`http://localhost:5000/api/upload/mentors/${mentorId}`);
+      const response = await axiosInstance.delete(`/upload/mentors/${mentorId}`);
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchExternalMentors(); }
     } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error deleting external mentor' });
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error deleting external evaluator' });
     }
   };
 
   const handleDeleteInternalMentor = async (mentorId, mentorName) => {
-    if (!window.confirm(`Delete Internal Mentor: ${mentorName}? This action cannot be undone.`)) return;
+    if (!window.confirm(`Delete Internal Examiner: ${mentorName}? This action cannot be undone.`)) return;
     try {
-      const response = await axios.delete(`http://localhost:5000/api/upload/internal-mentors/${mentorId}`);
+      const response = await axiosInstance.delete(`/upload/internal-mentors/${mentorId}`);
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchInternalMentors(); }
     } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error deleting internal mentor' });
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error deleting internal examiner' });
     }
   };
 
   const handleDeleteAllExternalMentors = async () => {
-    if (!window.confirm(`WARNING: Delete ALL ${externalMentors.length} External Mentors? This cannot be undone.`)) return;
-    if (!window.confirm(`Final confirmation: Delete ${externalMentors.length} external mentors?`)) return;
+    if (!window.confirm(`WARNING: Delete ALL ${externalMentors.length} External Evaluators? This cannot be undone.`)) return;
+    if (!window.confirm(`Final confirmation: Delete ${externalMentors.length} external evaluators?`)) return;
     try {
       setExternalLoading(true);
-      const response = await axios.delete('http://localhost:5000/api/upload/mentors');
+      const response = await axiosInstance.delete('/upload/mentors');
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchExternalMentors(); }
     } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error deleting external mentors' });
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error deleting external evaluators' });
     } finally { setExternalLoading(false); }
   };
 
   const handleDeleteAllInternalMentors = async () => {
-    if (!window.confirm(`WARNING: Delete ALL ${internalMentors.length} Internal Mentors? This cannot be undone.`)) return;
-    if (!window.confirm(`Final confirmation: Delete ${internalMentors.length} internal mentors?`)) return;
+    if (!window.confirm(`WARNING: Delete ALL ${internalMentors.length} Internal Examiners? This cannot be undone.`)) return;
+    if (!window.confirm(`Final confirmation: Delete ${internalMentors.length} internal examiners?`)) return;
     try {
       setInternalLoading(true);
-      const response = await axios.delete('http://localhost:5000/api/upload/internal-mentors');
+      const response = await axiosInstance.delete('/upload/internal-mentors');
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchInternalMentors(); }
     } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error deleting internal mentors' });
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error deleting internal examiners' });
     } finally { setInternalLoading(false); }
+  };
+
+  const openAddMentorModal = () => {
+    setMentorModalMode('add');
+    setMentorEditingId(null);
+    setMentorForm({ name: '', email: '' });
+    setMentorFormError('');
+    setMentorModalOpen(true);
+  };
+
+  const openEditMentorModal = (mentor) => {
+    setMentorModalMode('edit');
+    setMentorEditingId(mentor._id);
+    setMentorForm({ name: mentor.name || '', email: mentor.email || '' });
+    setMentorFormError('');
+    setMentorModalOpen(true);
+  };
+
+  const closeMentorModal = () => {
+    if (mentorSaving) return;
+    setMentorModalOpen(false);
+  };
+
+  const validateMentorForm = () => {
+    const name = mentorForm.name.trim();
+    const email = mentorForm.email.trim();
+    if (!name) return 'Name is required';
+    if (!email) return 'Email is required';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Please enter a valid email address';
+    return '';
+  };
+
+  const handleSaveMentor = async (e) => {
+    e.preventDefault();
+    setMentorFormError('');
+
+    const errorText = validateMentorForm();
+    if (errorText) {
+      setMentorFormError(errorText);
+      return;
+    }
+
+    const confirmText = mentorModalMode === 'add'
+      ? 'Are you sure you want to add this evaluator?'
+      : 'Are you sure you want to save changes to this evaluator?';
+    if (!window.confirm(confirmText)) return;
+
+    const type = activeTab === 'internal' ? 'internal' : 'external';
+
+    try {
+      setMentorSaving(true);
+      if (mentorModalMode === 'add') {
+        const response = await createMentor(type, {
+          name: mentorForm.name.trim(),
+          email: mentorForm.email.trim(),
+        });
+        if (response.data.success) {
+          setMessage({ type: 'success', text: response.data.message || 'Evaluator added successfully' });
+        }
+      } else {
+        const response = await updateMentor(type, mentorEditingId, {
+          name: mentorForm.name.trim(),
+          email: mentorForm.email.trim(),
+        });
+        if (response.data.success) {
+          setMessage({ type: 'success', text: response.data.message || 'Evaluator updated successfully' });
+        }
+      }
+
+      if (type === 'internal') {
+        await fetchInternalMentors();
+      } else {
+        await fetchExternalMentors();
+      }
+
+      setMentorModalOpen(false);
+    } catch (error) {
+      const msg = error.response?.data?.message || 'Failed to save evaluator';
+      setMentorFormError(msg);
+      setMessage({ type: 'error', text: msg });
+    } finally {
+      setMentorSaving(false);
+    }
   };
 
   const currentMentors = activeTab === 'external' ? externalMentors : internalMentors;
@@ -124,12 +230,12 @@ const AllMentors = () => {
       {/* Page Header */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">Mentor Directory</h1>
-          <p className="page-subtitle">View all external and internal mentors and their group assignments</p>
+          <h1 className="page-title">Evaluator Directory</h1>
+          <p className="page-subtitle">View all external evaluators and internal examiners and their group assignments</p>
         </div>
         {currentMentors.length > 0 && (
           <button onClick={handleDeleteAllMentors} className="btn-danger">
-            Delete All {activeTab === 'external' ? 'External' : 'Internal'} Mentors
+            Delete All {activeTab === 'external' ? 'External Evaluators' : 'Internal Examiners'}
           </button>
         )}
       </div>
@@ -166,17 +272,16 @@ const AllMentors = () => {
         <div className="border-b border-gray-200">
           <nav className="flex -mb-px">
             {[
-              { key: 'external', label: `External Mentors (${externalMentors.length})` },
-              { key: 'internal', label: `Internal Mentors (${internalMentors.length})` },
+              { key: 'external', label: `External Evaluators (${externalMentors.length})` },
+              { key: 'internal', label: `Internal Examiners (${internalMentors.length})` },
             ].map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab.key
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === tab.key
                     ? 'border-accent-600 text-accent-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                  }`}
               >
                 {tab.label}
               </button>
@@ -186,7 +291,7 @@ const AllMentors = () => {
 
         {/* Search inside card */}
         <div className="section-card-body border-b border-gray-100 pb-4">
-          <label className="form-label">Search {activeTab === 'external' ? 'External' : 'Internal'} Mentors</label>
+          <label className="form-label">Search {activeTab === 'external' ? 'External Evaluators' : 'Internal Examiners'}</label>
           <div className="flex gap-3">
             <input
               type="text"
@@ -201,7 +306,7 @@ const AllMentors = () => {
           </div>
           {searchQuery && (
             <p className="mt-1 text-xs text-gray-500">
-              Showing {filteredMentors.length} of {currentMentors.length} mentors
+              Showing {filteredMentors.length} of {currentMentors.length} evaluators
             </p>
           )}
         </div>
@@ -211,14 +316,14 @@ const AllMentors = () => {
           {(activeTab === 'external' ? externalLoading : internalLoading) ? (
             <div className="flex items-center justify-center py-12">
               <div className="loading-spinner mr-3"></div>
-              <span className="text-sm text-gray-500">Loading mentors...</span>
+              <span className="text-sm text-gray-500">Loading evaluators...</span>
             </div>
           ) : (
             <table className="data-table">
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>Mentor Name</th>
+                  <th>Evaluator Name</th>
                   <th>Email</th>
                   <th>Status</th>
                   <th>Assigned Groups</th>
@@ -230,7 +335,7 @@ const AllMentors = () => {
                 {displayMentors.length === 0 ? (
                   <tr>
                     <td colSpan="7" className="text-center py-10 text-gray-400">
-                      {searchQuery ? `No mentors found matching "${searchQuery}"` : `No ${activeTab} mentors found.`}
+                      {searchQuery ? `No evaluators found matching "${searchQuery}"` : `No ${activeTab === 'external' ? 'external evaluators' : 'internal examiners'} found.`}
                     </td>
                   </tr>
                 ) : (
@@ -259,9 +364,22 @@ const AllMentors = () => {
                       </td>
                       <td>{mentor.studentsHandled}</td>
                       <td>
-                        <button onClick={() => handleDeleteMentor(mentor._id, mentor.name)} className="btn-danger" style={{fontSize:'12px',padding:'4px 10px'}}>
-                          Delete
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => openEditMentorModal(mentor)}
+                            className="btn-secondary"
+                            style={{ fontSize: '12px', padding: '4px 10px' }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteMentor(mentor._id, mentor.name)}
+                            className="btn-danger"
+                            style={{ fontSize: '12px', padding: '4px 10px' }}
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -270,35 +388,102 @@ const AllMentors = () => {
             </table>
           )}
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-              <p className="text-xs text-gray-500">
-                Showing {indexOfFirstMentor + 1}–{Math.min(indexOfLastMentor, filteredMentors.length)} of {filteredMentors.length} mentors
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setCurrentPage(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  className="btn-secondary disabled:opacity-40"
-                  style={{fontSize:'12px',padding:'4px 10px'}}
-                >
-                  Previous
-                </button>
-                <span className="text-xs text-gray-600 self-center">Page {currentPage} of {totalPages}</span>
-                <button
-                  onClick={() => setCurrentPage(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                  className="btn-secondary disabled:opacity-40"
-                  style={{fontSize:'12px',padding:'4px 10px'}}
-                >
-                  Next
-                </button>
-              </div>
+          {/* Pagination + Add Mentor */}
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-gray-100">
+            <div className="flex items-center gap-3">
+              {totalPages > 1 ? (
+                <>
+                  <p className="text-xs text-gray-500">
+                    Showing {indexOfFirstMentor + 1}–{Math.min(indexOfLastMentor, filteredMentors.length)} of {filteredMentors.length} evaluators
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setCurrentPage(currentPage - 1)}
+                      disabled={currentPage === 1}
+                      className="btn-secondary disabled:opacity-40"
+                      style={{ fontSize: '12px', padding: '4px 10px' }}
+                    >
+                      Previous
+                    </button>
+                    <span className="text-xs text-gray-600 self-center">Page {currentPage} of {totalPages}</span>
+                    <button
+                      onClick={() => setCurrentPage(currentPage + 1)}
+                      disabled={currentPage === totalPages}
+                      className="btn-secondary disabled:opacity-40"
+                      style={{ fontSize: '12px', padding: '4px 10px' }}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-gray-500">
+                  Showing {filteredMentors.length} evaluator{filteredMentors.length !== 1 ? 's' : ''}
+                </p>
+              )}
             </div>
-          )}
+            <button onClick={openAddMentorModal} className="btn-primary">
+              + Add Evaluator
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Add/Edit Mentor Modal */}
+      {mentorModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <h2 className="text-lg font-semibold">
+                {mentorModalMode === 'add'
+                  ? `Add ${activeTab === 'internal' ? 'Internal' : 'External'} Evaluator`
+                  : 'Edit Evaluator'}
+              </h2>
+              <button onClick={closeMentorModal} disabled={mentorSaving} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+
+            <form onSubmit={handleSaveMentor} className="px-6 py-5">
+              {mentorFormError && (
+                <div className="alert-error mb-4">{mentorFormError}</div>
+              )}
+
+              <div className="mb-4">
+                <label className="form-label">Evaluator Name</label>
+                <input
+                  type="text"
+                  value={mentorForm.name}
+                  onChange={(e) => setMentorForm(prev => ({ ...prev, name: e.target.value }))}
+                  className="form-input"
+                  placeholder="Enter evaluator name"
+                  disabled={mentorSaving}
+                />
+              </div>
+
+              <div className="mb-2">
+                <label className="form-label">Email</label>
+                <input
+                  type="email"
+                  value={mentorForm.email}
+                  onChange={(e) => setMentorForm(prev => ({ ...prev, email: e.target.value }))}
+                  className="form-input"
+                  placeholder="evaluator@example.com"
+                  disabled={mentorSaving}
+                />
+                <p className="mt-1 text-xs text-gray-500">Email must be unique across all evaluators.</p>
+              </div>
+
+              <div className="mt-6 flex gap-3">
+                <button type="button" onClick={closeMentorModal} disabled={mentorSaving} className="btn-secondary flex-1 justify-center">
+                  Cancel
+                </button>
+                <button type="submit" disabled={mentorSaving} className="btn-primary flex-1 justify-center disabled:opacity-50">
+                  {mentorSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

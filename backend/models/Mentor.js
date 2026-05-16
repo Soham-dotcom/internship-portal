@@ -8,4 +8,9 @@ const mentorSchema = new mongoose.Schema({
   timestamps: true
 });
 
-module.exports = mongoose.model('Mentor', mentorSchema);
+const getMentorModel = (conn) => conn.models.Mentor || conn.model('Mentor', mentorSchema);
+
+module.exports = {
+  mentorSchema,
+  getMentorModel,
+};

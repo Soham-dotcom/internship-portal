@@ -7,6 +7,7 @@ import api from '../api/axios';
 
 const CompanyAnalytics = () => {
   const [companies, setCompanies]             = useState([]);
+  const [totalCompanies, setTotalCompanies]   = useState(0);
   const [branches, setBranches]               = useState([]);
   const [mentors, setMentors]                 = useState([]);
   const [companyBranches, setCompanyBranches] = useState([]);
@@ -37,7 +38,11 @@ const CompanyAnalytics = () => {
         api.get('/analytics/positions/tech'),
         api.get('/analytics/positions/non-tech'),
       ]);
-      if (companiesRes.data.success)      setCompanies(companiesRes.data.data.slice(0, 10));
+      if (companiesRes.data.success) {
+        const list = companiesRes.data.data || [];
+        setTotalCompanies(list.length);
+        setCompanies(list.slice(0, 10));
+      }
       if (branchesRes.data.success)       setBranches(branchesRes.data.data);
       if (mentorsRes.data.success)        setMentors(mentorsRes.data.data);
       if (companyBranchesRes.data.success) setCompanyBranches(companyBranchesRes.data.data);
@@ -90,7 +95,9 @@ const CompanyAnalytics = () => {
   }
 
   const topCompany = companies[0];
-  const totalWithProfile = techDistribution ? techDistribution.reduce((s, d) => s + d.count, 0) : 0;
+  const totalWithProfile = techDistribution
+    ? techDistribution.reduce((sum, item) => sum + item.count, 0)
+    : 0;
   const paginatedCompanyBranches = companyBranches.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
   const totalPages = Math.ceil(companyBranches.length / itemsPerPage);
 
@@ -101,34 +108,26 @@ const CompanyAnalytics = () => {
   return (
     <div className="page-container">
       <div className="page-header">
-        <h1 className="page-title">Company-wise Analysis</h1>
-        <p className="page-subtitle">Hiring patterns, branch distribution, and role breakdown across all companies</p>
+        <h1 className="page-title">Company Analysis</h1>
+        <p className="page-subtitle">Recruitment patterns, department distribution, and role breakdown across organizations</p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="stat-card border-l-4 border-blue-600">
-          <p className="stat-label">Companies (Top 10)</p>
-          <p className="stat-value">{companies.length}</p>
-        </div>
-        <div className="stat-card border-l-4 border-slate-500">
-          <p className="stat-label">Internship Types</p>
-          <p className="stat-value">{types.length}</p>
+          <p className="stat-label">Total Companies</p>
+          <p className="stat-value">{totalCompanies}</p>
         </div>
         <div className="stat-card border-l-4 border-blue-500">
-          <p className="stat-label">Top Hiring Company</p>
-          <p className="text-lg font-bold text-gray-900 mt-1 leading-tight">{topCompany?._id || '—'}</p>
+          <p className="stat-label">Top Recruiting Organization</p>
+          <p className="text-lg font-bold text-gray-900 mt-1 leading-tight">{topCompany?.companyName || topCompany?._id || '—'}</p>
           <p className="stat-secondary">{topCompany?.count ?? 0} students</p>
-        </div>
-        <div className="stat-card border-l-4 border-amber-500">
-          <p className="stat-label">Students with Role Data</p>
-          <p className="stat-value">{totalWithProfile}</p>
         </div>
       </div>
 
       <div className="section-card">
         <div className="section-card-header">
           <h2 className="section-title">Company Detail Lookup</h2>
-          <p className="text-xs text-gray-500 mt-0.5">Search for a company to view its student list, roles, and branch breakdown</p>
+          <p className="text-xs text-gray-500 mt-0.5">Search for an organization to view its student list, roles, and department breakdown</p>
         </div>
         <div className="section-card-body">
           <div className="relative max-w-md">
@@ -140,7 +139,7 @@ const CompanyAnalytics = () => {
                 {searchResults.map((company, idx) => (
                   <button key={idx} onClick={() => handleSelectCompany(company._id)}
                     className="w-full text-left px-4 py-2.5 hover:bg-blue-50 border-b border-gray-100 last:border-b-0">
-                    <div className="text-sm font-medium text-gray-900">{company._id}</div>
+                    <div className="text-sm font-medium text-gray-900">{company.companyName || company._id}</div>
                     <div className="text-xs text-gray-500">{company.location} — {company.count} student(s)</div>
                   </button>
                 ))}
@@ -175,7 +174,7 @@ const CompanyAnalytics = () => {
               <div className="overflow-x-auto">
                 <table className="data-table">
                   <thead>
-                    <tr><th>#</th><th>Student Name</th><th>UID</th><th>Branch</th><th>Role</th></tr>
+                    <tr><th>#</th><th>Student Name</th><th>UID</th><th>Department</th><th>Role</th></tr>
                   </thead>
                   <tbody>
                     {selectedCompany.students.map((student, idx) => (
@@ -198,12 +197,12 @@ const CompanyAnalytics = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="section-card">
           <div className="section-card-header">
-            <h2 className="section-title">Top 10 Companies by Hiring</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Ranked by total students placed</p>
+            <h2 className="section-title">Top Recruiting Organizations</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Ranked by total student placements</p>
           </div>
           <div className="section-card-body">
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={companies.map(c => ({ company: c._id, students: c.count }))}
+              <BarChart data={companies.map(c => ({ company: c.companyName || c._id, students: c.count }))}
                 layout="vertical" margin={{ top: 4, right: 40, left: 8, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" horizontal={false} />
                 <XAxis type="number" {...chartXAxis} />
@@ -218,8 +217,8 @@ const CompanyAnalytics = () => {
 
         <div className="section-card">
           <div className="section-card-header">
-            <h2 className="section-title">Branch-wise Student Count</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Distribution across all branches</p>
+            <h2 className="section-title">Department-wise Student Count</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Distribution across all departments</p>
           </div>
           <div className="section-card-body">
             <ResponsiveContainer width="100%" height={300}>
@@ -236,56 +235,33 @@ const CompanyAnalytics = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {techDistribution && (
-          <div className="section-card">
-            <div className="section-card-header">
-              <h2 className="section-title">Tech vs. Non-Tech Role Distribution</h2>
-              <p className="text-xs text-gray-500 mt-0.5">{totalWithProfile} students with role classification</p>
-            </div>
-            <div className="section-card-body">
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={techDistribution} margin={{ top: 8, right: 32, left: 0, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
-                  <XAxis dataKey="category" {...chartXAxis} tick={{ fontSize: 13, fill: '#374151' }} />
-                  <YAxis {...chartYAxis} label={{ value: 'Students', angle: -90, position: 'insideLeft', offset: 10, style: { fontSize: 11, fill: '#9CA3AF' } }} />
-                  <Tooltip {...chartTooltip} formatter={v => [`${v}`, 'Students']} />
-                  <Bar dataKey="count" maxBarSize={80} radius={[2,2,0,0]} fill="#2563EB"
-                    label={{ position: 'top', fontSize: 13, fill: '#374151', fontWeight: 600 }} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+      {techDistribution && (
+        <div className="section-card">
+          <div className="section-card-header">
+            <h2 className="section-title">Technical vs. Non-Technical Placements</h2>
+            <p className="text-xs text-gray-500 mt-0.5">{totalWithProfile} students with role classification</p>
           </div>
-        )}
-        {types.length > 0 && (
-          <div className="section-card">
-            <div className="section-card-header">
-              <h2 className="section-title">Internship Type Distribution</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Breakdown by internship category</p>
-            </div>
-            <div className="section-card-body">
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={types.map(t => ({ type: t._id, count: t.count }))}
-                  layout="vertical" margin={{ top: 4, right: 40, left: 8, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" horizontal={false} />
-                  <XAxis type="number" {...chartXAxis} />
-                  <YAxis type="category" dataKey="type" width={140} {...chartYAxis} />
-                  <Tooltip {...chartTooltip} formatter={v => [`${v}`, 'Students']} />
-                  <Bar dataKey="count" fill="#1D4ED8" radius={[0,2,2,0]} maxBarSize={24}
-                    label={{ position: 'right', fontSize: 11, fill: '#374151' }} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+          <div className="section-card-body">
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={techDistribution} margin={{ top: 8, right: 32, left: 0, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
+                <XAxis dataKey="category" {...chartXAxis} tick={{ fontSize: 13, fill: '#374151' }} />
+                <YAxis {...chartYAxis} label={{ value: 'Students', angle: -90, position: 'insideLeft', offset: 10, style: { fontSize: 11, fill: '#9CA3AF' } }} />
+                <Tooltip {...chartTooltip} formatter={v => [`${v}`, 'Students']} />
+                <Bar dataKey="count" maxBarSize={80} radius={[2,2,0,0]} fill="#2563EB"
+                  label={{ position: 'top', fontSize: 13, fill: '#374151', fontWeight: 600 }} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {techPositions.length > 0 && (
           <div className="section-card">
             <div className="section-card-header">
-              <h2 className="section-title">Top Tech Roles</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Most common technical internship titles</p>
+              <h2 className="section-title">Top Technical Roles</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Most common technical role titles</p>
             </div>
             <div className="section-card-body">
               <ResponsiveContainer width="100%" height={300}>
@@ -305,8 +281,8 @@ const CompanyAnalytics = () => {
         {nonTechPositions.length > 0 && (
           <div className="section-card">
             <div className="section-card-header">
-              <h2 className="section-title">Top Non-Tech Roles</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Most common non-technical internship titles</p>
+              <h2 className="section-title">Top Non-Technical Roles</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Most common non-technical role titles</p>
             </div>
             <div className="section-card-body">
               <ResponsiveContainer width="100%" height={300}>
@@ -328,8 +304,8 @@ const CompanyAnalytics = () => {
       {mentors.length > 0 && (
         <div className="section-card">
           <div className="section-card-header">
-            <h2 className="section-title">Mentor-wise Student Distribution</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Top 10 external mentors by assigned student count</p>
+            <h2 className="section-title">External Evaluator Distribution</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Top 10 external evaluators by assigned student count</p>
           </div>
           <div className="section-card-body">
             <ResponsiveContainer width="100%" height={300}>
@@ -351,7 +327,7 @@ const CompanyAnalytics = () => {
         <div className="section-card overflow-hidden">
           <div className="section-card-header flex items-center justify-between">
             <div>
-              <h2 className="section-title">Company-wise Branch Distribution</h2>
+              <h2 className="section-title">Company-wise Department Distribution</h2>
               <p className="text-xs text-gray-500 mt-0.5">
                 Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, companyBranches.length)} of {companyBranches.length} companies
               </p>
@@ -360,7 +336,7 @@ const CompanyAnalytics = () => {
           <div className="overflow-x-auto">
             <table className="data-table">
               <thead>
-                <tr><th className="w-8">#</th><th>Company</th><th>Branch Breakdown</th><th className="text-right">Total</th></tr>
+                <tr><th className="w-8">#</th><th>Company</th><th>Department Breakdown</th><th className="text-right">Total</th></tr>
               </thead>
               <tbody>
                 {paginatedCompanyBranches.map((company, idx) => (

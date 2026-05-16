@@ -1,16 +1,19 @@
 const express = require('express');
 const router = express.Router();
-const Internship = require('../models/Internship');
-const Group = require('../models/Group');
+const { getYearDb } = require('../db/connection');
+const { getInternshipModel } = require('../models/Internship');
+const { getGroupModel } = require('../models/Group');
+const { normalizeCompanyName } = require('../utils/companyNormalization');
 
 // GET company-wise hiring statistics (FIXED - no duplicates)
 router.get('/companies', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     // Group by exact company name and count unique UIDs
     const companyStats = await Internship.aggregate([
       {
         $match: {
-          companyName: { 
+          standardized_company_name: {
             $nin: ['', ' ', 'Ineligible', 'ineligible', '-', 'N/A', 'n/a'],
             $exists: true,
             $ne: null
@@ -19,10 +22,11 @@ router.get('/companies', async (req, res) => {
       },
       {
         $group: {
-          _id: '$companyName',
+          _id: '$standardized_company_name',
           uniqueStudents: { $addToSet: '$uid' }, // Get unique UIDs
           location: { $first: '$companyLocation' },
-          students: { $addToSet: '$name' } // Get unique student names
+          students: { $addToSet: '$name' },
+          companyName: { $first: '$companyName' }
         }
       },
       {
@@ -30,7 +34,8 @@ router.get('/companies', async (req, res) => {
           _id: 1,
           count: { $size: '$uniqueStudents' }, // Count unique students
           location: 1,
-          students: 1
+          students: 1,
+          companyName: 1
         }
       },
       { $sort: { count: -1 } }
@@ -45,6 +50,7 @@ router.get('/companies', async (req, res) => {
 // GET branch distribution (FIXED - no duplicates)
 router.get('/branches', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const branchStats = await Internship.aggregate([
       {
         $group: {
@@ -70,6 +76,7 @@ router.get('/branches', async (req, res) => {
 // GET mentor-wise student distribution
 router.get('/mentors', async (req, res) => {
   try {
+    const Group = getGroupModel(getYearDb(req.year));
     const mentorStats = await Group.aggregate([
       {
         $lookup: {
@@ -112,10 +119,11 @@ router.get('/mentors', async (req, res) => {
 // GET branch distribution within each company (FIXED - no duplicates)
 router.get('/companies/branches', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const companyBranchStats = await Internship.aggregate([
       {
         $match: {
-          companyName: { 
+          standardized_company_name: {
             $nin: ['', ' ', 'Ineligible', 'ineligible', '-', 'N/A', 'n/a'],
             $exists: true,
             $ne: null
@@ -125,7 +133,7 @@ router.get('/companies/branches', async (req, res) => {
       {
         $group: {
           _id: {
-            company: '$companyName',
+            company: '$standardized_company_name',
             branch: '$branch'
           },
           uniqueStudents: { $addToSet: '$uid' }
@@ -161,6 +169,7 @@ router.get('/companies/branches', async (req, res) => {
 // GET stipend comparison
 router.get('/stipends', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const stipendStats = await Internship.aggregate([
       {
         $match: {
@@ -169,7 +178,7 @@ router.get('/stipends', async (req, res) => {
       },
       {
         $group: {
-          _id: '$companyName',
+          _id: '$standardized_company_name',
           avgStipend: { 
             $avg: { 
               $toDouble: { 
@@ -218,12 +227,13 @@ router.get('/stipends', async (req, res) => {
 // GET internship type distribution (FIXED - no duplicates)
 router.get('/types', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const typeStats = await Internship.aggregate([
       {
         $group: {
           _id: '$internshipType',
           uniqueStudents: { $addToSet: '$uid' },
-          companies: { $addToSet: '$companyName' }
+          companies: { $addToSet: '$standardized_company_name' }
         }
       },
       {
@@ -245,6 +255,7 @@ router.get('/types', async (req, res) => {
 // GET comprehensive summary (FIXED - no duplicates)
 router.get('/summary', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const [
       companyStats,
       branchStats,
@@ -254,7 +265,7 @@ router.get('/summary', async (req, res) => {
       Internship.aggregate([
         {
           $match: {
-            companyName: { 
+            standardized_company_name: {
               $nin: ['', ' ', 'Ineligible', 'ineligible', '-', 'N/A', 'n/a'],
               $exists: true,
               $ne: null
@@ -263,7 +274,7 @@ router.get('/summary', async (req, res) => {
         },
         { 
           $group: { 
-            _id: '$companyName', 
+            _id: '$standardized_company_name', 
             uniqueStudents: { $addToSet: '$uid' } 
           } 
         },
@@ -337,25 +348,28 @@ router.get('/summary', async (req, res) => {
 // SEARCH for a company by name with autocomplete
 router.get('/companies/search', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const { name } = req.query;
     if (!name) return res.json({ success: true, data: [] });
 
+    const query = normalizeCompanyName(name);
     const companies = await Internship.aggregate([
-      { 
-        $match: { 
-          companyName: { 
-            $regex: name, 
+      {
+        $match: {
+          standardized_company_name: {
+            $regex: query,
             $options: 'i',
             $nin: ['', ' ', 'Ineligible', 'ineligible', '-', 'N/A', 'n/a']
           }
-        } 
+        }
       },
-      { 
-        $group: { 
-          _id: '$companyName',
+      {
+        $group: {
+          _id: '$standardized_company_name',
           location: { $first: '$companyLocation' },
-          count: { $sum: 1 } 
-        } 
+          count: { $sum: 1 },
+          companyName: { $first: '$companyName' }
+        }
       },
       { $sort: { count: -1 } },
       { $limit: 10 }
@@ -369,11 +383,13 @@ router.get('/companies/search', async (req, res) => {
 // GET detailed information for a company
 router.get('/companies/details/:name', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const companyName = req.params.name;
+    const normalizedCompany = normalizeCompanyName(companyName);
     
     // Use aggregation to find the most frequent location for this company as the "canonical" location
     const locationAggregation = await Internship.aggregate([
-      { $match: { companyName: { $regex: new RegExp(`^${companyName}$`, 'i') } } },
+      { $match: { standardized_company_name: normalizedCompany } },
       { $group: { _id: '$companyLocation', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
       { $limit: 1 }
@@ -388,29 +404,29 @@ router.get('/companies/details/:name', async (req, res) => {
       yearlyPlacements
     ] = await Promise.all([
       // Get all student details
-      Internship.find({ companyName: { $regex: new RegExp(`^${companyName}$`, 'i') } })
+      Internship.find({ standardized_company_name: normalizedCompany })
         .select('name uid branch internshipTitle status startDate endDate duration stipend'),
       
       // Aggregate roles
       Internship.aggregate([
-        { $match: { companyName: { $regex: new RegExp(`^${companyName}$`, 'i') } } },
+        { $match: { standardized_company_name: normalizedCompany } },
         { $group: { _id: '$internshipTitle', count: { $sum: 1 } } },
         { $sort: { count: -1 } }
       ]),
       
       // Aggregate status
       Internship.aggregate([
-        { $match: { companyName: { $regex: new RegExp(`^${companyName}$`, 'i') } } },
+        { $match: { standardized_company_name: normalizedCompany } },
         { $group: { _id: '$status', count: { $sum: 1 } } }
       ]),
       
       // Aggregate yearly trends (if startDate exists)
       Internship.aggregate([
-        { 
-          $match: { 
-            companyName: { $regex: new RegExp(`^${companyName}$`, 'i') },
-            startDate: { $ne: null } 
-          } 
+        {
+          $match: {
+            standardized_company_name: normalizedCompany,
+            startDate: { $ne: null }
+          }
         },
         { $group: { _id: { $year: '$startDate' }, count: { $sum: 1 } } },
         { $sort: { '_id': 1 } }
@@ -439,10 +455,11 @@ router.get('/companies/details/:name', async (req, res) => {
 // GET Tech vs Non-Tech distribution (FIXED - no duplicates)
 router.get('/tech-distribution', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const distribution = await Internship.aggregate([
       {
         $match: {
-          companyName: { 
+          standardized_company_name: {
             $nin: ['', ' ', 'Ineligible', 'ineligible', '-', 'N/A', 'n/a'],
             $exists: true,
             $ne: null
@@ -509,10 +526,11 @@ router.get('/tech-distribution', async (req, res) => {
 // GET position distribution (tech positions)
 router.get('/positions/tech', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const positions = await Internship.aggregate([
       {
         $match: {
-          companyName: { 
+          standardized_company_name: {
             $nin: ['', ' ', 'Ineligible', 'ineligible', '-', 'N/A', 'n/a'],
             $exists: true,
             $ne: null
@@ -555,10 +573,11 @@ router.get('/positions/tech', async (req, res) => {
 // GET position distribution (non-tech positions) (FIXED - no duplicates)
 router.get('/positions/non-tech', async (req, res) => {
   try {
+    const Internship = getInternshipModel(getYearDb(req.year));
     const positions = await Internship.aggregate([
       {
         $match: {
-          companyName: { 
+          standardized_company_name: {
             $nin: ['', ' ', 'Ineligible', 'ineligible', '-', 'N/A', 'n/a'],
             $exists: true,
             $ne: null
