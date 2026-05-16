@@ -15,6 +15,7 @@ const Dashboard = () => {
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalCompanies: 0,
+    totalOffers: 0,
     branchWiseCount: [],
   });
   const [analytics, setAnalytics] = useState({
@@ -75,15 +76,6 @@ const Dashboard = () => {
       ? `${((analytics.techDistribution.nonTech / totalWithProfile) * 100).toFixed(1)}% of profiled`
       : null;
 
-  const avgPerCompany =
-    stats.totalCompanies > 0
-      ? (stats.totalStudents / stats.totalCompanies).toFixed(1)
-      : 'N/A';
-
-  const techNonTechRatio =
-    analytics.techDistribution?.nonTech > 0
-      ? `${(analytics.techDistribution.tech / analytics.techDistribution.nonTech).toFixed(2)} : 1`
-      : 'N/A';
 
   const techNonTechData = [
     { category: 'Tech Roles', count: analytics.techDistribution?.tech ?? 0 },
@@ -96,23 +88,16 @@ const Dashboard = () => {
       <div className="page-header">
         <h1 className="page-title">Dashboard</h1>
         <p className="page-subtitle">
-          Summary statistics and internship data overview — Academic Year 2025–26
+          Institutional internship overview and placement insights
         </p>
       </div>
 
       {/* KPI row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card title="Total Students"   value={stats.totalStudents}                       accent="border-blue-600" />
-        <Card title="Companies"        value={stats.totalCompanies}                      accent="border-slate-500" />
-        <Card title="Tech Roles"       value={analytics.techDistribution?.tech ?? 0}    subtitle={techPct}    accent="border-blue-500" />
-        <Card title="Non-Tech Roles"   value={analytics.techDistribution?.nonTech ?? 0} subtitle={nonTechPct} accent="border-amber-500" />
-      </div>
-
-      {/* Secondary KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <Card title="Avg. Students per Company" value={avgPerCompany}         accent="border-gray-400" />
-        <Card title="Active Branches"           value={branchChartData.length} accent="border-gray-400" />
-        <Card title="Tech / Non-Tech Ratio"     value={techNonTechRatio}       accent="border-gray-400" />
+        <Card title="Total Placement Offers" value={stats.totalOffers || stats.totalStudents} accent="border-blue-600" />
+        <Card title="Participating Companies" value={stats.totalCompanies} accent="border-slate-500" />
+        <Card title="Technical Placements" value={analytics.techDistribution?.tech ?? 0} subtitle={techPct} accent="border-blue-500" />
+        <Card title="Non-Technical Placements" value={analytics.techDistribution?.nonTech ?? 0} subtitle={nonTechPct} accent="border-amber-500" />
       </div>
 
       {/* Charts row */}
@@ -121,7 +106,7 @@ const Dashboard = () => {
         <div className="section-card">
           <div className="section-card-header">
             <h2 className="section-title">Branch-wise Student Distribution</h2>
-            <p className="text-xs text-gray-500 mt-0.5">{stats.totalStudents} total students across all branches</p>
+            <p className="text-xs text-gray-500 mt-0.5">{stats.totalStudents} students across all departments</p>
           </div>
           <div className="section-card-body">
             <ResponsiveContainer width="100%" height={280}>
@@ -152,8 +137,8 @@ const Dashboard = () => {
         {/* Tech vs Non-Tech */}
         <div className="section-card">
           <div className="section-card-header">
-            <h2 className="section-title">Tech vs. Non-Tech Role Distribution</h2>
-            <p className="text-xs text-gray-500 mt-0.5">{totalWithProfile} students with role profile data</p>
+            <h2 className="section-title">Technical vs. Non-Technical Placements</h2>
+            <p className="text-xs text-gray-500 mt-0.5">{totalWithProfile} students with role classification</p>
           </div>
           <div className="section-card-body">
             <ResponsiveContainer width="100%" height={280}>
@@ -186,8 +171,8 @@ const Dashboard = () => {
       {companyChartData.length > 0 && (
         <div className="section-card">
           <div className="section-card-header">
-            <h2 className="section-title">Top Companies by Student Count</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Top 10 companies ranked by number of students placed</p>
+            <h2 className="section-title">Top Recruiting Organizations</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Top 10 by number of student placements</p>
           </div>
           <div className="section-card-body">
             <ResponsiveContainer width="100%" height={320}>

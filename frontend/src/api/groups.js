@@ -1,13 +1,4 @@
-import axios from 'axios';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-
-const axiosInstance = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+import axiosInstance from './axios';
 
 // Generate groups with filters and settings
 export const generateGroups = (data) => {
@@ -97,9 +88,19 @@ export const updateGroup = (groupId, data) => {
   return axiosInstance.put(`/groups/${groupId}`, data);
 };
 
+// Manually assign/change a mentor for a group (external by default; can pass mentorType)
+export const assignMentorToGroup = (groupId, { mentorId, mentorType } = {}) => {
+  return axiosInstance.put(`/groups/${groupId}/assign-mentor`, { mentorId, mentorType });
+};
+
 // Clear all groups
 export const clearAllGroups = () => {
   return axiosInstance.post('/groups/clear-all');
+};
+
+// Send mail to a group's mentor with an Excel attachment
+export const sendGroupMail = (groupId, payload = undefined) => {
+  return axiosInstance.post(`/send-mail/${groupId}`, payload);
 };
 
 export default axiosInstance;

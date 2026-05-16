@@ -68,8 +68,8 @@ const StudentPicker = () => {
       {/* Page Header */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">Random Student Picker</h1>
-          <p className="page-subtitle">Randomly select unassigned students based on filter criteria</p>
+          <h1 className="page-title">Student Selection Utility</h1>
+          <p className="page-subtitle">Randomly select unassigned students based on academic filters</p>
         </div>
         {pickedStudents.length > 0 && (
           <button onClick={handleExport} className="btn-secondary">Export to Excel</button>
@@ -113,20 +113,20 @@ const StudentPicker = () => {
               <input type="text" name="year" value={filters.year} onChange={handleFilterChange} placeholder="e.g. 2024" className="form-input" />
             </div>
             <div>
-              <label className="form-label">Number to Pick</label>
+              <label className="form-label">Number to Select</label>
               <input type="number" value={count} onChange={(e) => setCount(e.target.value)} min="1" placeholder="e.g. 5" className="form-input" />
             </div>
           </div>
 
           <div className="flex gap-3 mt-4">
             <button onClick={handlePickStudents} disabled={loading} className="btn-primary">
-              {loading ? 'Picking...' : 'Pick Random Students'}
+              {loading ? 'Selecting...' : 'Select Students'}
             </button>
             <button onClick={resetFilters} className="btn-secondary">Reset</button>
           </div>
 
           <div className="alert-info mt-4">
-            Only students NOT already assigned to a group will be eligible. Students in existing groups are excluded automatically.
+            Only students not already assigned to a group are eligible. Students in existing groups are excluded automatically.
           </div>
         </div>
       </div>
@@ -184,7 +184,7 @@ const StudentPicker = () => {
           <ul className="space-y-1 text-sm text-gray-600 list-disc list-inside">
             <li>Set filters to narrow the pool of eligible students.</li>
             <li>Specify how many students to randomly select.</li>
-            <li>Click "Pick Random Students" to generate the selection.</li>
+            <li>Click "Select Students" to generate the selection.</li>
             <li>Export the results to Excel for further processing.</li>
             <li>Use for fair random selection for events, presentations, or activities.</li>
           </ul>

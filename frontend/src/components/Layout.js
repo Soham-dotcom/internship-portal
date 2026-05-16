@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { clearAuthSession, getAuthUser, getAuthYear } from '../auth/session';
 
 const SIDEBAR_WIDTH = 'w-60';
 
@@ -11,36 +12,46 @@ const navigation = [
     ],
   },
   {
-    group: 'Student Records',
+    group: 'Student Management',
     items: [
-      { name: 'Internship Overview', href: '/internships' },
-      { name: 'Student Record Edit', href: '/mentor-edit' },
-      { name: 'Random Student Picker', href: '/picker' },
+      { name: 'Student Internship Records', href: '/internships' },
+      { name: 'Student Record Management', href: '/mentor-edit' },
+      { name: 'Student Selection Utility', href: '/picker' },
     ],
   },
   {
-    group: 'Group Management',
+    group: 'Evaluation Management',
     items: [
-      { name: 'Group Generator', href: '/groups' },
-      { name: 'All Groups', href: '/all-groups' },
+      { name: 'Group Formation System', href: '/groups' },
+      { name: 'Evaluation Group Management', href: '/all-groups' },
     ],
   },
   {
-    group: 'Mentors',
+    group: 'Evaluators',
     items: [
-      { name: 'Mentor Directory', href: '/all-mentors' },
+      { name: 'Internal Examiners', href: '/all-mentors?type=internal' },
+      { name: 'External Evaluators', href: '/all-mentors?type=external' },
+      { name: 'Evaluator Registry', href: '/all-mentors' },
     ],
   },
   {
-    group: 'Analytics',
+    group: 'Analytics & Reports',
     items: [
-      { name: 'Company-wise Analysis', href: '/analytics' },
+      { name: 'Company Analytics', href: '/analytics' },
     ],
   },
   {
-    group: 'Data Import',
+    group: 'Evaluation',
     items: [
-      { name: 'Upload Excel Data', href: '/upload' },
+      { name: 'Weekly Internship Reports', href: '/weekly-reports' },
+      { name: 'Marks & Evaluation Dashboard', href: '/evaluation-overview' },
+    ],
+  },
+  {
+    group: 'Data Management',
+    items: [
+      { name: 'Data Import Center', href: '/upload' },
+      { name: 'Evaluation Marks Import', href: '/evaluation-upload' },
     ],
   },
 ];
@@ -48,6 +59,8 @@ const navigation = [
 const Layout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const location = useLocation();
+  const year = getAuthYear();
+  const user = getAuthUser();
 
   const isActive = (href) =>
     href === '/' ? location.pathname === '/' : location.pathname.startsWith(href);
@@ -111,8 +124,10 @@ const Layout = ({ children }) => {
 
         {/* Footer */}
         <div className="px-5 py-3 border-t border-slate-700">
-          <p className="text-xs text-slate-500">Internship Analysis Portal</p>
-          <p className="text-xs text-slate-600">Academic Year 2025–26</p>
+          <p className="text-xs text-slate-500">Internship Evaluation Portal</p>
+          <p className="text-xs text-slate-600">
+            {year ? `Academic Year ${year}` : 'Academic Year'}
+          </p>
         </div>
       </aside>
 
@@ -130,9 +145,24 @@ const Layout = ({ children }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <span className="text-sm text-gray-500 font-medium">
-              Internship Analysis Portal &mdash; Administrative View
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-500 font-medium">
+                Internship Evaluation Portal &mdash; Administrative View
+              </span>
+              <div className="hidden sm:flex items-center gap-2 text-xs text-gray-500">
+                {user && <span className="px-2 py-0.5 rounded bg-slate-100">{user}</span>}
+                {year && <span className="px-2 py-0.5 rounded bg-slate-100">Year {year}</span>}
+                <button
+                  onClick={() => {
+                    clearAuthSession();
+                    window.location.href = '/login';
+                  }}
+                  className="px-2 py-0.5 rounded bg-red-50 text-red-600 hover:bg-red-100"
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
           </div>
         </header>
 

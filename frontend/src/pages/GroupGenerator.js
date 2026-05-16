@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { exportGroups as exportGroupsOld } from '../api/axios';
 import { generateGroups, listGroups, unassignStudents } from '../api/groups';
@@ -91,7 +91,7 @@ const GroupGenerator = () => {
         const exportData = group.students.map((student, idx) => ({
           'S.No': idx + 1, 'Student Name': student.name, 'UID': student.uid,
           'Email': student.email, 'Branch': student.branch, 'Company': student.company,
-          'Mentor': student.externalMentorName || '', 'Internship Type': student.internshipType,
+          'External Evaluator': student.externalMentorName || '', 'Placement Type': student.internshipType,
           'Start Date': student.startDate ? new Date(student.startDate).toISOString().split('T')[0] : '',
           'End Date': student.endDate ? new Date(student.endDate).toISOString().split('T')[0] : ''
         }));
@@ -111,8 +111,8 @@ const GroupGenerator = () => {
       {/* Page Header */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">Group Generator</h1>
-          <p className="page-subtitle">Generate student groups by applying filters and group size settings</p>
+          <h1 className="page-title">Group Formation System</h1>
+          <p className="page-subtitle">Create evaluation groups using filters and group size rules</p>
         </div>
         {groups.length > 0 && (
           <button onClick={handleExportGroups} className="btn-secondary">Export Groups to Excel</button>
@@ -180,7 +180,7 @@ const GroupGenerator = () => {
             </div>
             <div className="pt-2">
               <button onClick={handleGenerateGroups} disabled={loading} className="btn-primary w-full">
-                {loading ? 'Generating...' : 'Generate Groups'}
+                {loading ? 'Generating...' : 'Generate Evaluation Groups'}
               </button>
             </div>
           </div>
@@ -188,14 +188,14 @@ const GroupGenerator = () => {
       </div>
 
       <div className="alert-info mt-2">
-        Only students NOT already assigned to a group will be included. Students in existing groups are excluded automatically.
+        Only students not already assigned to a group will be included. Students in existing groups are excluded automatically.
       </div>
 
       {/* Existing Groups */}
       {existingGroups.length > 0 && (
         <div className="section-card mt-6">
           <div className="section-card-header">
-            <h2 className="section-title">Existing Groups ({existingGroups.length})</h2>
+            <h2 className="section-title">Existing Evaluation Groups ({existingGroups.length})</h2>
           </div>
           <div className="section-card-body p-0">
             <table className="data-table">
@@ -229,7 +229,7 @@ const GroupGenerator = () => {
         <div className="mt-6 space-y-4">
           <div className="section-card">
             <div className="section-card-header">
-              <h2 className="section-title">Generated Groups Preview</h2>
+              <h2 className="section-title">Generated Evaluation Groups</h2>
               <p className="text-sm text-gray-500">{groups.length} groups — {totalStudents} total students</p>
             </div>
           </div>
@@ -247,7 +247,7 @@ const GroupGenerator = () => {
                       <th>UID</th>
                       <th>Branch</th>
                       <th>Company</th>
-                      <th>Type</th>
+                      <th>Placement Type</th>
                     </tr>
                   </thead>
                   <tbody>

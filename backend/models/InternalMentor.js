@@ -8,4 +8,9 @@ const internalMentorSchema = new mongoose.Schema({
   timestamps: true
 });
 
-module.exports = mongoose.model('InternalMentor', internalMentorSchema);
+const getInternalMentorModel = (conn) => conn.models.InternalMentor || conn.model('InternalMentor', internalMentorSchema);
+
+module.exports = {
+  internalMentorSchema,
+  getInternalMentorModel,
+};

@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Group = require('./models/Group');
 const Internship = require('./models/Internship');
 const Mentor = require('./models/Mentor');
+require('./models/InternalMentor');
 require('dotenv').config();
 
 if (!process.env.MONGODB_URI) {
@@ -22,12 +23,15 @@ async function checkDatabase() {
     // Check groups
     const groupCount = await Group.countDocuments();
     console.log(`\n📊 Groups in database: ${groupCount}`);
-    
+
     if (groupCount > 0) {
-      const groups = await Group.find().limit(5).populate('mentor');
+      const groups = await Group.find()
+        .limit(5)
+        .populate('externalMentor')
+        .populate('internalMentor');
       console.log('\n📋 Sample groups:');
       groups.forEach(g => {
-        const mentorName = g.mentor?.name || 'No mentor assigned';
+        const mentorName = g.externalMentor?.name || g.internalMentor?.name || 'No mentor assigned';
         console.log(`   - ${g.name} (${mentorName}) - ${g.students?.length || 0} students`);
       });
     }

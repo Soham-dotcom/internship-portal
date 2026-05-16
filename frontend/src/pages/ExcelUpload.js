@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import { normalizeCompanyName, similarityScore } from '../utils/companyNormalization';
 import { 
   importData, 
   downloadTemplate, 
@@ -14,6 +15,7 @@ import {
 const ExcelUpload = () => {
   const [file, setFile] = useState(null);
   const [parsedData, setParsedData] = useState([]);
+  const [companySuggestions, setCompanySuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -86,20 +88,38 @@ const ExcelUpload = () => {
         const json = XLSX.utils.sheet_to_json(worksheet);
         if (json.length === 0) { setMessage({ type: 'error', text: 'Excel file is empty' }); setLoading(false); return; }
         const mapped = json.map((row, idx) => {
-          if (!row['UID'] && !row['uid']) console.warn(`Row ${idx + 1}: Missing UID`);
+          const rawUid = row['UID']
+            || row['uid']
+            || row['Roll No']
+            || row['Roll No.']
+            || row['roll no']
+            || row['roll no.']
+            || row['Sr No']
+            || row['Sr No.']
+            || row['S.No']
+            || row['S No']
+            || row['sr no']
+            || row['s.no']
+            || '';
+          const uid = String(rawUid || '').trim() || `AUTO-${idx + 1}`;
+          if (!rawUid) console.warn(`Row ${idx + 1}: Missing UID, using ${uid}`);
+          const companyName = row['8th Sem Internship Offer'] || row['Company Name'] || row['companyName'] || row['company'] || row['Placement Offer'] || '';
+          const standardized_company_name = normalizeCompanyName(companyName);
           return {
             email: row['Institute Email ID'] || row['Personal Email ID'] || row['Email'] || row['email'] || '',
             name: row['Name'] || row['name'] || row['Student Name'] || '',
-            uid: row['UID'] || row['uid'] || row['Roll No'] || '',
+            uid,
             branch: row['Branch'] || row['branch'] || '',
             internshipType: row['Internship Type'] || row['internshipType'] || '8th Sem',
-            companyName: row['8th Sem Internship Offer'] || row['Company Name'] || row['companyName'] || row['company'] || row['Placement Offer'] || '',
+            companyName,
+            standardized_company_name,
             externalMentorName: row['External Mentor Name'] || row['externalMentorName'] || '',
             startDate: row['Start Date'] || row['startDate'] || new Date(),
             endDate: row['End Date'] || row['endDate'] || new Date(),
             documentLink: row['8th Sem Internship Offer Letter'] || row['Document Link'] || row['documentLink'] || '',
             companyLocation: row['Company Location'] || row['companyLocation'] || '',
-            internshipTitle: row['Role'] || row['Profile'] || row['Internship Title'] || row['internshipTitle'] || '',
+            internshipTitle: row['Role'] || row['Internship Title'] || row['internshipTitle'] || row['Profile'] || row['profile'] || '',
+            profile: row['Profile'] || row['profile'] || row['Tech/Non-Tech'] || row['Tech Non Tech'] || row['Role Type'] || row['role type'] || '',
             stipend: row['8th Sem Internship Stipend'] || row['Stipend'] || row['stipend'] || '',
             gender: row['Gender'] || row['gender'] || '',
             phone: row['Mobile No.'] || row['Phone'] || row['phone'] || '',
@@ -108,9 +128,26 @@ const ExcelUpload = () => {
             remarks: row['Remarks'] || row['remarks'] || '',
             submittedAt: row['Submitted At'] || new Date()
           };
-        }).filter(item => item.uid && item.companyName);
+        });
         setParsedData(mapped);
-        setMessage({ type: 'success', text: `Parsed ${mapped.length} valid records from ${json.length} rows.` });
+        const rawNames = mapped
+          .map((item) => String(item.companyName || '').trim())
+          .filter(Boolean);
+        const uniqueNames = Array.from(new Set(rawNames));
+        const suggestions = [];
+        for (let i = 0; i < uniqueNames.length; i += 1) {
+          for (let j = i + 1; j < uniqueNames.length; j += 1) {
+            const a = normalizeCompanyName(uniqueNames[i]);
+            const b = normalizeCompanyName(uniqueNames[j]);
+            if (!a || !b || a === b) continue;
+            const score = similarityScore(a, b);
+            if (score >= 0.8) {
+              suggestions.push(`${uniqueNames[i]}  ~  ${uniqueNames[j]}`);
+            }
+          }
+        }
+        setCompanySuggestions(suggestions.slice(0, 20));
+        setMessage({ type: 'success', text: `Parsed ${mapped.length} records from ${json.length} rows.` });
       } catch (error) { setMessage({ type: 'error', text: 'Error parsing file: ' + error.message }); }
       finally { setLoading(false); }
     };
@@ -130,7 +167,7 @@ const ExcelUpload = () => {
         }
         if (response.data.errors?.length > 0) text += '\nErrors:\n' + response.data.errors.join('\n');
         setMessage({ type: response.data.failed > 0 ? 'warning' : 'success', text });
-        setParsedData([]); setFile(null);
+        setParsedData([]); setCompanySuggestions([]); setFile(null);
       }
     } catch (error) {
       setMessage({ type: 'error', text: 'Error importing data: ' + (error.response?.data?.message || error.message) });
@@ -347,8 +384,8 @@ const ExcelUpload = () => {
       {/* Page Header */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">Upload Excel Data</h1>
-          <p className="page-subtitle">Import student internship records and mentor data from Excel files</p>
+          <h1 className="page-title">Data Import Center</h1>
+          <p className="page-subtitle">Import student internship records and evaluator data from Excel files</p>
         </div>
       </div>
 
@@ -362,6 +399,20 @@ const ExcelUpload = () => {
           {message.text && (
             <div className={`alert-${message.type === 'success' ? 'success' : message.type === 'warning' ? 'warning' : 'error'}`}>
               <div className="whitespace-pre-wrap">{message.text}</div>
+            </div>
+          )}
+
+          {companySuggestions.length > 0 && (
+            <div className="alert-warning">
+              <div className="font-semibold">Possible duplicate company names detected:</div>
+              <ul className="mt-2 space-y-1 text-sm">
+                {companySuggestions.map((item, idx) => (
+                  <li key={`${item}-${idx}`}>{item}</li>
+                ))}
+              </ul>
+              <div className="text-xs text-gray-600 mt-2">
+                Review these before importing to keep analytics accurate.
+              </div>
             </div>
           )}
 
@@ -402,7 +453,7 @@ const ExcelUpload = () => {
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Name</th><th>UID</th><th>Branch</th><th>Company</th><th>Type</th>
+                        <th>Name</th><th>UID</th><th>Branch</th><th>Company</th><th>Placement Type</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -430,11 +481,11 @@ const ExcelUpload = () => {
         </div>
       </div>
 
-      {/* Section 2 — External Mentors */}
+      {/* Section 2 — External Evaluators */}
       <UploadSection
-        title="External Mentors (Industry)"
-        subtitle="Import external company mentors from Excel"
-        templateLabel="Download External Mentor Template"
+        title="External Evaluators (Industry)"
+        subtitle="Import external evaluators from Excel"
+        templateLabel="Download External Evaluator Template"
         fileInputLabel="Select Excel File"
         onDownloadTemplate={handleDownloadExternalMentorTemplate}
         fileState={externalMentorFile}
@@ -445,19 +496,19 @@ const ExcelUpload = () => {
         previewColumns={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email' }]}
         onImport={handleImportExternalMentors}
         isImporting={externalMentorImporting}
-        importLabel="Import External Mentors"
+        importLabel="Import External Evaluators"
         alertMsg={externalMentorMessage}
         existingList={externalMentorList}
         existingLoading={loadingExternalMentorList}
-        existingLabel="Current External Mentors"
+        existingLabel="Current External Evaluators"
       />
 
-      {/* Section 3 — Internal Mentors */}
+      {/* Section 3 — Internal Examiners */}
       <div className="mt-6">
         <UploadSection
-          title="Internal Mentors (Faculty)"
-          subtitle="Import internal college faculty mentors from Excel"
-          templateLabel="Download Internal Mentor Template"
+          title="Internal Examiners (Faculty)"
+          subtitle="Import internal examiners from Excel"
+          templateLabel="Download Internal Examiner Template"
           fileInputLabel="Select Excel File"
           onDownloadTemplate={handleDownloadInternalMentorTemplate}
           fileState={internalMentorFile}
@@ -468,11 +519,11 @@ const ExcelUpload = () => {
           previewColumns={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email' }]}
           onImport={handleImportInternalMentors}
           isImporting={internalMentorImporting}
-          importLabel="Import Internal Mentors"
+          importLabel="Import Internal Examiners"
           alertMsg={internalMentorMessage}
           existingList={internalMentorList}
           existingLoading={loadingInternalMentorList}
-          existingLabel="Current Internal Mentors"
+          existingLabel="Current Internal Examiners"
         />
       </div>
     </div>

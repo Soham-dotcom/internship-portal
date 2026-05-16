@@ -10,10 +10,13 @@ import {
   searchGroups,
   syncMentors,
   updateGroup,
-  clearAllGroups
+  assignMentorToGroup,
+  clearAllGroups,
+  sendGroupMail
 } from '../api/groups';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
+import { getMailDraft, saveMailDraft, listSenderEmails, addSenderEmail } from '../api/mail';
 
 const AllGroups = () => {
   const [groups, setGroups] = useState([]);
@@ -35,6 +38,31 @@ const AllGroups = () => {
   const [availableExternalMentors, setAvailableExternalMentors] = useState([]);
   const [availableInternalMentors, setAvailableInternalMentors] = useState([]);
   const [saving, setSaving] = useState(false);
+
+  const [sendingMailByGroupId, setSendingMailByGroupId] = useState({});
+
+  const [draftModalOpen, setDraftModalOpen] = useState(false);
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [draftForm, setDraftForm] = useState({ subject: '', body: '' });
+  const [draftModalError, setDraftModalError] = useState('');
+
+  const [sendMailModalOpen, setSendMailModalOpen] = useState(false);
+  const [sendMailModalError, setSendMailModalError] = useState('');
+  const [mailGroup, setMailGroup] = useState(null);
+  const [mailRecipientType, setMailRecipientType] = useState('external');
+  const [senderEmails, setSenderEmails] = useState([]);
+  const [selectedSenderEmailId, setSelectedSenderEmailId] = useState('');
+  const [loadingSenderEmails, setLoadingSenderEmails] = useState(false);
+  const [addingSender, setAddingSender] = useState(false);
+  const [newSenderForm, setNewSenderForm] = useState({ email: '', password: '' });
+  const [addingSenderSaving, setAddingSenderSaving] = useState(false);
+
+  const [assignMentorModalOpen, setAssignMentorModalOpen] = useState(false);
+  const [assigningGroup, setAssigningGroup] = useState(null);
+  const [assignMentorType, setAssignMentorType] = useState('external');
+  const [selectedMentorId, setSelectedMentorId] = useState('');
+  const [assigningMentorByGroupId, setAssigningMentorByGroupId] = useState({});
 
   useEffect(() => { fetchGroups(); }, []);
 
@@ -112,8 +140,8 @@ const AllGroups = () => {
         'S.No': idx + 1, 'Student Name': student.name, 'UID': student.uid,
         'Institutional Email': student.email || '', 'Branch': student.branch,
         'Company': student.company || '',
-        'External Mentor': group.externalMentor?.name || 'Not Assigned',
-        'Internal Mentor': group.internalMentor?.name || 'Not Assigned',
+        'External Evaluator': group.externalMentor?.name || 'Not Assigned',
+        'Internal Examiner': group.internalMentor?.name || 'Not Assigned',
       }));
       const ws = XLSX.utils.json_to_sheet(exportData);
       ws['!cols'] = [{ wch: 6 }, { wch: 25 }, { wch: 12 }, { wch: 30 }, { wch: 10 }, { wch: 30 }, { wch: 25 }, { wch: 25 }];
@@ -154,56 +182,56 @@ const AllGroups = () => {
 
   const handleAllocateExternalMentorsToAll = async () => {
     const unassignedGroups = groups.filter(g => !g.externalMentor);
-    if (unassignedGroups.length === 0) { setMessage({ type: 'warning', text: 'All groups already have external mentors assigned.' }); return; }
-    if (!window.confirm(`Allocate external mentors to ${unassignedGroups.length} groups?`)) return;
+    if (unassignedGroups.length === 0) { setMessage({ type: 'warning', text: 'All groups already have external evaluators assigned.' }); return; }
+    if (!window.confirm(`Allocate external evaluators to ${unassignedGroups.length} groups?`)) return;
     try {
       const response = await allocateExternalMentorsToAll();
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchGroups(); }
     } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error allocating external mentors' });
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error allocating external evaluators' });
     }
   };
 
   const handleAllocateInternalMentorsToAll = async () => {
     const unassignedGroups = groups.filter(g => !g.internalMentor);
-    if (unassignedGroups.length === 0) { setMessage({ type: 'warning', text: 'All groups already have internal mentors assigned.' }); return; }
-    if (!window.confirm(`Allocate internal mentors to ${unassignedGroups.length} groups?`)) return;
+    if (unassignedGroups.length === 0) { setMessage({ type: 'warning', text: 'All groups already have internal examiners assigned.' }); return; }
+    if (!window.confirm(`Allocate internal examiners to ${unassignedGroups.length} groups?`)) return;
     try {
       const response = await allocateInternalMentorsToAll();
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchGroups(); }
     } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error allocating internal mentors' });
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error allocating internal examiners' });
     }
   };
 
   const handleAllocateExternalMentorToGroup = async (groupId, groupName) => {
-    if (!window.confirm(`Allocate a random external mentor to ${groupName}?`)) return;
+    if (!window.confirm(`Allocate a random external evaluator to ${groupName}?`)) return;
     try {
       const response = await allocateExternalMentorToGroup(groupId);
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchGroups(); }
     } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error allocating external mentor' });
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error allocating external evaluator' });
     }
   };
 
   const handleAllocateInternalMentorToGroup = async (groupId, groupName) => {
-    if (!window.confirm(`Allocate a random internal mentor to ${groupName}?`)) return;
+    if (!window.confirm(`Allocate a random internal examiner to ${groupName}?`)) return;
     try {
       const response = await allocateInternalMentorToGroup(groupId);
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchGroups(); }
     } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error allocating internal mentor' });
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error allocating internal examiner' });
     }
   };
 
   const handleSyncMentors = async () => {
-    if (!window.confirm('Sync Mentor Assignments? This will fix any mentors incorrectly marked as assigned/unassigned.')) return;
+    if (!window.confirm('Sync Evaluator Assignments? This will fix any evaluators incorrectly marked as assigned/unassigned.')) return;
     try {
       setLoading(true);
       const response = await syncMentors();
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchGroups(); }
     } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error syncing mentors' });
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error syncing evaluators' });
     } finally {
       setLoading(false);
     }
@@ -228,6 +256,101 @@ const AllGroups = () => {
       console.error('Error fetching mentors:', error);
     }
     setEditModalOpen(true);
+  };
+
+  const handleOpenAssignMentorModal = async (group, type = 'external') => {
+    if (!group?._id) return;
+
+    setAssigningGroup(group);
+    setAssignMentorType(type);
+
+    const currentId = type === 'external' ? group.externalMentor?._id : group.internalMentor?._id;
+    setSelectedMentorId(currentId || '');
+
+    try {
+      if (type === 'external' && availableExternalMentors.length === 0) {
+        const res = await axios.get('http://localhost:5000/api/upload/mentors');
+        if (res.data.success) setAvailableExternalMentors(res.data.data);
+      }
+      if (type === 'internal' && availableInternalMentors.length === 0) {
+        const res = await axios.get('http://localhost:5000/api/upload/internal-mentors');
+        if (res.data.success) setAvailableInternalMentors(res.data.data);
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Error loading mentors' });
+    }
+
+    setAssignMentorModalOpen(true);
+  };
+
+  const handleAssignMentorTypeChange = async (nextType) => {
+    if (!assigningGroup) return;
+
+    setAssignMentorType(nextType);
+    const currentId = nextType === 'external' ? assigningGroup.externalMentor?._id : assigningGroup.internalMentor?._id;
+    setSelectedMentorId(currentId || '');
+
+    try {
+      if (nextType === 'external' && availableExternalMentors.length === 0) {
+        const res = await axios.get('http://localhost:5000/api/upload/mentors');
+        if (res.data.success) setAvailableExternalMentors(res.data.data);
+      }
+      if (nextType === 'internal' && availableInternalMentors.length === 0) {
+        const res = await axios.get('http://localhost:5000/api/upload/internal-mentors');
+        if (res.data.success) setAvailableInternalMentors(res.data.data);
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Error loading mentors' });
+    }
+  };
+
+  const handleCloseAssignMentorModal = () => {
+    setAssignMentorModalOpen(false);
+    setAssigningGroup(null);
+    setAssignMentorType('external');
+    setSelectedMentorId('');
+  };
+
+  const handleConfirmAssignMentor = async () => {
+    const groupId = assigningGroup?._id;
+    if (!groupId) return;
+
+    if (!selectedMentorId) {
+      setMessage({ type: 'error', text: 'Please select an evaluator' });
+      return;
+    }
+
+    if (assigningMentorByGroupId[groupId]) return;
+
+    const ok = window.confirm('Are you sure you want to assign/change evaluator?');
+    if (!ok) return;
+
+    setAssigningMentorByGroupId(prev => ({ ...prev, [groupId]: true }));
+    setMessage({ type: '', text: '' });
+
+    try {
+      const response = await assignMentorToGroup(groupId, {
+        mentorId: selectedMentorId,
+        mentorType: assignMentorType
+      });
+
+      if (response.data.success) {
+        const updated = response.data.data;
+
+        // Update UI instantly without full refresh
+        setGroups(prev => prev.map(g => (g._id === updated._id ? updated : g)));
+        setFilteredGroups(prev => prev.map(g => (g._id === updated._id ? updated : g)));
+
+        setMessage({ type: 'success', text: response.data.message || 'Evaluator assigned successfully' });
+        handleCloseAssignMentorModal();
+      } else {
+        setMessage({ type: 'error', text: response.data.message || 'Error assigning evaluator' });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error assigning evaluator' });
+    } finally {
+      setAssigningMentorByGroupId(prev => ({ ...prev, [groupId]: false }));
+    }
   };
 
   const handleCloseEditModal = () => {
@@ -259,6 +382,257 @@ const AllGroups = () => {
     }
   };
 
+  const handleSendMailToGroupMentor = async (group) => {
+    console.log('[UI] Click: Send Mail', { groupId: group?._id, groupName: group?.groupName });
+    const groupId = group?._id;
+    if (!groupId) return;
+    if (sendingMailByGroupId[groupId]) return;
+
+    // Pick a sensible default recipient type
+    const defaultType = group.externalMentor?.email ? 'external' : group.internalMentor?.email ? 'internal' : 'external';
+    setMailRecipientType(defaultType);
+    setMailGroup(group);
+    setSelectedSenderEmailId('');
+    setAddingSender(false);
+    setNewSenderForm({ email: '', password: '' });
+
+    setSendMailModalError('');
+
+    setSendMailModalOpen(true);
+
+    // Load sender emails list
+    setLoadingSenderEmails(true);
+    try {
+      console.log('[API] listSenderEmails()');
+      const res = await listSenderEmails();
+      if (res.data.success) {
+        setSenderEmails(res.data.data || []);
+      }
+    } catch (error) {
+      const msg = error.response?.data?.message || 'Error loading sender emails';
+      setSendMailModalError(msg);
+      setMessage({ type: 'error', text: msg });
+    } finally {
+      setLoadingSenderEmails(false);
+    }
+  };
+
+  const closeSendMailModal = () => {
+    setSendMailModalOpen(false);
+    setSendMailModalError('');
+    setMailGroup(null);
+    setSelectedSenderEmailId('');
+    setAddingSender(false);
+    setNewSenderForm({ email: '', password: '' });
+  };
+
+  const handleAddSenderEmail = async () => {
+    if (!newSenderForm.email.trim()) {
+      setMessage({ type: 'error', text: 'Sender email is required' });
+      return;
+    }
+    if (!newSenderForm.password) {
+      setMessage({ type: 'error', text: 'Sender password is required' });
+      return;
+    }
+
+    setAddingSenderSaving(true);
+    try {
+      const res = await addSenderEmail({ email: newSenderForm.email, password: newSenderForm.password });
+      if (res.data.success) {
+        setMessage({ type: 'success', text: 'Sender email added' });
+        const created = res.data.data;
+        const next = [...senderEmails, created].sort((a, b) => (a.email || '').localeCompare(b.email || ''));
+        setSenderEmails(next);
+        setSelectedSenderEmailId(created._id);
+        setAddingSender(false);
+        setNewSenderForm({ email: '', password: '' });
+      } else {
+        setMessage({ type: 'error', text: res.data.message || 'Error adding sender email' });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error adding sender email' });
+    } finally {
+      setAddingSenderSaving(false);
+    }
+  };
+
+  const handleConfirmSendMail = async () => {
+    console.log('[UI] Click: Confirm Send');
+    const groupId = mailGroup?._id;
+    if (!groupId) return;
+    if (sendingMailByGroupId[groupId]) return;
+
+    const hasRecipient = mailRecipientType === 'external'
+      ? !!mailGroup?.externalMentor?.email
+      : !!mailGroup?.internalMentor?.email;
+
+    if (!hasRecipient) {
+      const msg = `Selected ${mailRecipientType} evaluator email is missing for this group.`;
+      setSendMailModalError(msg);
+      setMessage({ type: 'error', text: msg });
+      return;
+    }
+
+    // If user is adding a new sender, auto-save it on Send.
+    let effectiveSenderEmailId = selectedSenderEmailId;
+    if (!effectiveSenderEmailId) {
+      if (addingSender) {
+        if (!newSenderForm.email.trim()) {
+          const msg = 'New sender email is required';
+          setSendMailModalError(msg);
+          setMessage({ type: 'error', text: msg });
+          return;
+        }
+        if (!newSenderForm.password) {
+          const msg = 'New sender password is required';
+          setSendMailModalError(msg);
+          setMessage({ type: 'error', text: msg });
+          return;
+        }
+
+        try {
+          console.log('[API] addSenderEmail() (auto on Send)', { email: newSenderForm.email });
+          const res = await addSenderEmail({ email: newSenderForm.email, password: newSenderForm.password });
+          console.log('[API] addSenderEmail() response', res?.data);
+
+          if (!res.data.success) {
+            const msg = res.data.message || 'Error adding sender email';
+            setSendMailModalError(msg);
+            setMessage({ type: 'error', text: msg });
+            return;
+          }
+
+          const created = res.data.data;
+          const next = [...senderEmails, created].sort((a, b) => (a.email || '').localeCompare(b.email || ''));
+          setSenderEmails(next);
+
+          effectiveSenderEmailId = created._id;
+          setSelectedSenderEmailId(created._id);
+          setAddingSender(false);
+          setNewSenderForm({ email: '', password: '' });
+        } catch (error) {
+          const msg = error.response?.data?.message || 'Error adding sender email';
+          setSendMailModalError(msg);
+          setMessage({ type: 'error', text: msg });
+          return;
+        }
+      } else {
+        const msg = 'Please select a sender email (or add a new one).';
+        setSendMailModalError(msg);
+        setMessage({ type: 'error', text: msg });
+        return;
+      }
+    }
+
+    const ok = window.confirm('Are you sure you want to send mail to this evaluator?');
+    if (!ok) return;
+
+    setSendingMailByGroupId(prev => ({ ...prev, [groupId]: true }));
+    setSendMailModalError('');
+    setMessage({ type: '', text: '' });
+
+    try {
+      console.log('[API] sendGroupMail()', { groupId, senderEmailId: effectiveSenderEmailId, recipientType: mailRecipientType });
+      const response = await sendGroupMail(groupId, {
+        senderEmailId: effectiveSenderEmailId,
+        recipientType: mailRecipientType,
+      });
+      console.log('[API] sendGroupMail() response', response?.data);
+      if (response.data.success) {
+        setMessage({ type: 'success', text: response.data.message || 'Mail sent successfully!' });
+        closeSendMailModal();
+        await fetchGroups();
+      } else {
+        const msg = response.data.message || 'Error sending mail';
+        setSendMailModalError(msg);
+        setMessage({ type: 'error', text: msg });
+      }
+    } catch (error) {
+      const status = error.response?.status;
+      const msg = error.response?.data?.message || 'Error sending mail';
+      if (status === 409) {
+        setMessage({ type: 'info', text: msg });
+        closeSendMailModal();
+        await fetchGroups();
+      } else {
+        setSendMailModalError(msg);
+        setMessage({ type: 'error', text: msg });
+      }
+    } finally {
+      setSendingMailByGroupId(prev => ({ ...prev, [groupId]: false }));
+    }
+  };
+
+  const openDraftModal = async () => {
+    console.log('[UI] Click: Edit Mail Draft');
+    setDraftModalOpen(true);
+    setDraftLoading(true);
+    setDraftModalError('');
+    setMessage({ type: '', text: '' });
+    try {
+      console.log('[API] getMailDraft()');
+      const res = await getMailDraft();
+      if (res.data.success) {
+        setDraftForm({
+          subject: res.data.data?.subject || '',
+          body: res.data.data?.body || '',
+        });
+      }
+    } catch (error) {
+      const msg = error.response?.data?.message || 'Error loading mail draft';
+      setDraftModalError(msg);
+      setMessage({ type: 'error', text: msg });
+    } finally {
+      setDraftLoading(false);
+    }
+  };
+
+  const closeDraftModal = () => {
+    setDraftModalOpen(false);
+    setDraftModalError('');
+  };
+
+  const handleSaveDraft = async () => {
+    console.log('[UI] Click: Save Draft');
+    if (!draftForm.subject.trim()) {
+      const msg = 'Subject is required';
+      setDraftModalError(msg);
+      setMessage({ type: 'error', text: msg });
+      return;
+    }
+    if (!draftForm.body.trim()) {
+      const msg = 'Body is required';
+      setDraftModalError(msg);
+      setMessage({ type: 'error', text: msg });
+      return;
+    }
+
+    const ok = window.confirm('Are you sure you want to save changes to the global mail draft?');
+    if (!ok) return;
+
+    setDraftSaving(true);
+    try {
+      console.log('[API] saveMailDraft()', { subjectLen: draftForm.subject.length, bodyLen: draftForm.body.length });
+      const res = await saveMailDraft({ subject: draftForm.subject, body: draftForm.body });
+      console.log('[API] saveMailDraft() response', res?.data);
+      if (res.data.success) {
+        setMessage({ type: 'success', text: 'Mail draft saved successfully' });
+        closeDraftModal();
+      } else {
+        const msg = res.data.message || 'Error saving mail draft';
+        setDraftModalError(msg);
+        setMessage({ type: 'error', text: msg });
+      }
+    } catch (error) {
+      const msg = error.response?.data?.message || 'Error saving mail draft';
+      setDraftModalError(msg);
+      setMessage({ type: 'error', text: msg });
+    } finally {
+      setDraftSaving(false);
+    }
+  };
+
   const expandAll = () => setExpandedGroups(new Set(groups.map(g => g._id)));
   const collapseAll = () => setExpandedGroups(new Set());
 
@@ -278,21 +652,28 @@ const AllGroups = () => {
   const totalStudentsAll = groups.reduce((sum, g) => sum + g.studentCount, 0);
   const avgSize = groups.length > 0 ? Math.round(totalStudentsAll / groups.length) : 0;
 
+  const mentorsForAssign = assignMentorType === 'external' ? availableExternalMentors : availableInternalMentors;
+  const currentAssignedMentorId = assignMentorType === 'external'
+    ? assigningGroup?.externalMentor?._id
+    : assigningGroup?.internalMentor?._id;
+  const selectableMentorsForAssign = mentorsForAssign.filter(m => !m.isAssigned || m._id === currentAssignedMentorId);
+
   return (
     <div className="page-container">
       {/* Page Header */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">All Student Groups</h1>
-          <p className="page-subtitle">View and manage allocated student groups and mentor assignments</p>
+          <h1 className="page-title">Evaluation Group Overview</h1>
+          <p className="page-subtitle">View and manage evaluation groups and evaluator assignments</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={fetchGroups} className="btn-secondary">Refresh</button>
+          <button onClick={openDraftModal} className="btn-secondary">Edit Mail Draft</button>
           {groups.length > 0 && (
             <>
-              <button onClick={handleAllocateExternalMentorsToAll} className="btn-secondary">Allocate External Mentors</button>
-              <button onClick={handleAllocateInternalMentorsToAll} className="btn-secondary">Allocate Internal Mentors</button>
-              <button onClick={handleSyncMentors} className="btn-secondary">Sync Mentors</button>
+              <button onClick={handleAllocateExternalMentorsToAll} className="btn-secondary">Allocate External Evaluators</button>
+              <button onClick={handleAllocateInternalMentorsToAll} className="btn-secondary">Allocate Internal Examiners</button>
+              <button onClick={handleSyncMentors} className="btn-secondary">Sync Evaluators</button>
               <button onClick={handleExportAll} className="btn-secondary">Export All Groups</button>
               <button onClick={handleUnassignAllGroups} className="btn-danger">Unassign All Groups</button>
             </>
@@ -333,7 +714,7 @@ const AllGroups = () => {
             <div className="relative flex-1">
               <input
                 type="text"
-                placeholder="Search by student name or mentor name..."
+                placeholder="Search by student name or evaluator name..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="form-input"
@@ -363,7 +744,7 @@ const AllGroups = () => {
         <div className="section-card">
           <div className="section-card-body text-center py-16">
             <p className="text-gray-500 text-sm">
-              {searchQuery ? `No groups match the search term "${searchQuery}".` : 'No student groups have been created yet. Use the Group Generator to create groups.'}
+              {searchQuery ? `No groups match the search term "${searchQuery}".` : 'No evaluation groups have been created yet. Use the Group Formation System to create groups.'}
             </p>
           </div>
         </div>
@@ -388,26 +769,48 @@ const AllGroups = () => {
                     </div>
                     <div className="ml-4 flex gap-4 text-xs">
                       {group.externalMentor
-                        ? <span className="badge badge-blue">External: {group.externalMentor.name}</span>
-                        : <span className="badge badge-red">No external mentor</span>}
+                        ? <span className="badge badge-blue">External Evaluator: {group.externalMentor.name}</span>
+                        : <span className="badge badge-red">No external evaluator</span>}
                       {group.internalMentor
-                        ? <span className="badge badge-green">Internal: {group.internalMentor.name}</span>
-                        : <span className="badge badge-red">No internal mentor</span>}
+                        ? <span className="badge badge-green">Internal Examiner: {group.internalMentor.name}</span>
+                        : <span className="badge badge-red">No internal examiner</span>}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {!group.externalMentor && (
                       <button onClick={() => handleAllocateExternalMentorToGroup(group._id, group.groupName)} className="btn-secondary" style={{fontSize:'12px',padding:'4px 10px'}}>
-                        Assign External
+                        Assign External Evaluator
                       </button>
                     )}
                     {!group.internalMentor && (
                       <button onClick={() => handleAllocateInternalMentorToGroup(group._id, group.groupName)} className="btn-secondary" style={{fontSize:'12px',padding:'4px 10px'}}>
-                        Assign Internal
+                        Assign Internal Examiner
                       </button>
                     )}
+
+                    {/* Manual mentor assignment/change (does not replace random allocation) */}
+                    <button
+                      onClick={() => handleOpenAssignMentorModal(
+                        group,
+                        group.externalMentor ? 'external' : group.internalMentor ? 'internal' : 'external'
+                      )}
+                      disabled={!!assigningMentorByGroupId[group._id]}
+                      className="btn-secondary"
+                      style={{fontSize:'12px',padding:'4px 10px'}}
+                    >
+                      {(group.externalMentor || group.internalMentor) ? 'Change Evaluator' : 'Assign Evaluator'}
+                    </button>
+
                     <button onClick={() => handleOpenEditModal(group)} className="btn-secondary" style={{fontSize:'12px',padding:'4px 10px'}}>Edit</button>
                     <button onClick={() => handleExportSingleGroup(group)} className="btn-secondary" style={{fontSize:'12px',padding:'4px 10px'}}>Export</button>
+                    <button
+                      onClick={() => handleSendMailToGroupMentor(group)}
+                      disabled={!!sendingMailByGroupId[group._id]}
+                      className="btn-secondary"
+                      style={{fontSize:'12px',padding:'4px 10px'}}
+                    >
+                      {sendingMailByGroupId[group._id] ? 'Sending...' : 'Send Mail'}
+                    </button>
                     <button onClick={() => handleUnassignGroup(group)} className="btn-danger" style={{fontSize:'12px',padding:'4px 10px'}}>Unassign</button>
                   </div>
                 </div>
@@ -465,26 +868,26 @@ const AllGroups = () => {
                 />
               </div>
               <div>
-                <label className="form-label">External Mentor (Industry)</label>
+                <label className="form-label">External Evaluator (Industry)</label>
                 <select
                   value={editFormData.externalMentor || ''}
                   onChange={(e) => setEditFormData({ ...editFormData, externalMentor: e.target.value })}
                   className="form-select"
                 >
-                  <option value="">— No External Mentor —</option>
+                  <option value="">— No External Evaluator —</option>
                   {availableExternalMentors.map((mentor) => (
                     <option key={mentor._id} value={mentor._id}>{mentor.name} ({mentor.company})</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="form-label">Internal Mentor (Faculty)</label>
+                <label className="form-label">Internal Examiner (Faculty)</label>
                 <select
                   value={editFormData.internalMentor || ''}
                   onChange={(e) => setEditFormData({ ...editFormData, internalMentor: e.target.value })}
                   className="form-select"
                 >
-                  <option value="">— No Internal Mentor —</option>
+                  <option value="">— No Internal Examiner —</option>
                   {availableInternalMentors.map((mentor) => (
                     <option key={mentor._id} value={mentor._id}>{mentor.name} ({mentor.department || 'Faculty'})</option>
                   ))}
@@ -501,6 +904,251 @@ const AllGroups = () => {
                 {saving ? 'Saving...' : 'Save Changes'}
               </button>
               <button onClick={handleCloseEditModal} disabled={saving} className="btn-secondary flex-1">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign/Change Mentor Modal */}
+      {assignMentorModalOpen && assigningGroup && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded border border-gray-200 shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-base font-semibold text-gray-900">
+                {assigningGroup.externalMentor ? 'Change Evaluator' : 'Assign Evaluator'}
+              </h2>
+              <button onClick={handleCloseAssignMentorModal} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <div className="alert-info">
+                <strong>Group:</strong> {assigningGroup.groupName}
+              </div>
+
+              <div>
+                <label className="form-label">Evaluator Type</label>
+                <select
+                  value={assignMentorType}
+                  onChange={(e) => handleAssignMentorTypeChange(e.target.value)}
+                  className="form-select"
+                >
+                  <option value="external">External Evaluator</option>
+                  <option value="internal">Internal Examiner</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="form-label">Select Evaluator <span className="text-red-500">*</span></label>
+                <select
+                  value={selectedMentorId}
+                  onChange={(e) => setSelectedMentorId(e.target.value)}
+                  className="form-select"
+                >
+                  <option value="">— Select an evaluator —</option>
+                  {selectableMentorsForAssign.map((mentor) => (
+                    <option key={mentor._id} value={mentor._id}>
+                      {mentor.name} ({mentor.email})
+                    </option>
+                  ))}
+                </select>
+                {selectableMentorsForAssign.length === 0 && (
+                  <p className="mt-1 text-xs text-gray-500">No evaluators available.</p>
+                )}
+              </div>
+
+              <p className="text-xs text-gray-500">
+                Only unassigned evaluators are shown (plus the current evaluator).
+              </p>
+            </div>
+
+            <div className="flex gap-3 px-6 py-4 border-t border-gray-200">
+              <button
+                onClick={handleConfirmAssignMentor}
+                disabled={!!assigningMentorByGroupId[assigningGroup._id] || selectableMentorsForAssign.length === 0}
+                className="btn-primary flex-1"
+              >
+                {assigningMentorByGroupId[assigningGroup._id] ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                onClick={handleCloseAssignMentorModal}
+                disabled={!!assigningMentorByGroupId[assigningGroup._id]}
+                className="btn-secondary flex-1"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Mail Draft Modal */}
+      {draftModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded border border-gray-200 shadow-xl w-full max-w-lg">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-base font-semibold text-gray-900">Edit Mail Draft</h2>
+              <button onClick={closeDraftModal} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              {!!draftModalError && (
+                <div className="alert-error">
+                  {draftModalError}
+                </div>
+              )}
+              {draftLoading ? (
+                <div className="text-center py-10">
+                  <div className="loading-spinner mx-auto mb-3"></div>
+                  <p className="text-sm text-gray-500">Loading draft...</p>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="form-label">Subject <span className="text-red-500">*</span></label>
+                    <input
+                      type="text"
+                      value={draftForm.subject}
+                      onChange={(e) => setDraftForm({ ...draftForm, subject: e.target.value })}
+                      className="form-input"
+                      placeholder="Enter subject"
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">Body <span className="text-red-500">*</span></label>
+                    <textarea
+                      value={draftForm.body}
+                      onChange={(e) => setDraftForm({ ...draftForm, body: e.target.value })}
+                      className="form-input"
+                      style={{ minHeight: '160px' }}
+                      placeholder="Enter email body"
+                    />
+                      <p className="mt-1 text-xs text-gray-500">
+                        Optional placeholders: {'{{mentorName}}'}, {'{{mentorEmail}}'}, {'{{groupName}}'}
+                      </p>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="flex gap-3 px-6 py-4 border-t border-gray-200">
+              <button onClick={handleSaveDraft} disabled={draftSaving || draftLoading} className="btn-primary flex-1">
+                {draftSaving ? 'Saving...' : 'Save Draft'}
+              </button>
+              <button onClick={closeDraftModal} disabled={draftSaving} className="btn-secondary flex-1">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Send Mail Modal */}
+      {sendMailModalOpen && mailGroup && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded border border-gray-200 shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-base font-semibold text-gray-900">Send Mail</h2>
+              <button onClick={closeSendMailModal} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              {!!sendMailModalError && (
+                <div className="alert-error">
+                  {sendMailModalError}
+                </div>
+              )}
+              <div className="alert-info">
+                <strong>Group:</strong> {mailGroup.groupName}
+              </div>
+
+              <div>
+                <label className="form-label">Send To</label>
+                <select
+                  value={mailRecipientType}
+                  onChange={(e) => setMailRecipientType(e.target.value)}
+                  className="form-select"
+                >
+                  <option value="external">External Evaluator</option>
+                  <option value="internal">Internal Examiner</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  External: {mailGroup.externalMentor?.email || '—'} | Internal: {mailGroup.internalMentor?.email || '—'}
+                </p>
+              </div>
+
+              <div>
+                <label className="form-label">Sender Email</label>
+                {loadingSenderEmails ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <div className="loading-spinner" style={{ width: '18px', height: '18px' }}></div>
+                    Loading sender emails...
+                  </div>
+                ) : (
+                  <select
+                    value={selectedSenderEmailId}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === '__add__') {
+                        setAddingSender(true);
+                        setSelectedSenderEmailId('');
+                      } else {
+                        setAddingSender(false);
+                        setSelectedSenderEmailId(value);
+                      }
+                    }}
+                    className="form-select"
+                  >
+                    <option value="">— Select sender email —</option>
+                    {senderEmails.map(s => (
+                      <option key={s._id} value={s._id}>{s.email}</option>
+                    ))}
+                    <option value="__add__">+ Add New Sender Email</option>
+                  </select>
+                )}
+              </div>
+
+              {addingSender && (
+                <div className="section-card" style={{ marginBottom: 0 }}>
+                  <div className="section-card-body space-y-3">
+                    <div>
+                      <label className="form-label">New Sender Email <span className="text-red-500">*</span></label>
+                      <input
+                        type="email"
+                        value={newSenderForm.email}
+                        onChange={(e) => setNewSenderForm({ ...newSenderForm, email: e.target.value })}
+                        className="form-input"
+                        placeholder="sender@example.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">Password <span className="text-red-500">*</span></label>
+                      <input
+                        type="password"
+                        value={newSenderForm.password}
+                        onChange={(e) => setNewSenderForm({ ...newSenderForm, password: e.target.value })}
+                        className="form-input"
+                        placeholder="App password / SMTP password"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">Password is encrypted before storing.</p>
+                    </div>
+                    <button
+                      onClick={handleAddSenderEmail}
+                      disabled={addingSenderSaving}
+                      className="btn-secondary"
+                      style={{ width: '100%' }}
+                    >
+                      {addingSenderSaving ? 'Adding...' : 'Add Sender Email'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 px-6 py-4 border-t border-gray-200">
+              <button
+                onClick={handleConfirmSendMail}
+                disabled={!!sendingMailByGroupId[mailGroup._id] || loadingSenderEmails}
+                className="btn-primary flex-1"
+              >
+                {sendingMailByGroupId[mailGroup._id] ? 'Sending...' : 'Send'}
+              </button>
+              <button onClick={closeSendMailModal} disabled={!!sendingMailByGroupId[mailGroup._id]} className="btn-secondary flex-1">Cancel</button>
             </div>
           </div>
         </div>

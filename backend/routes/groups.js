@@ -1,11 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const xlsx = require('xlsx');
-const Internship = require('../models/Internship');
-const Group = require('../models/Group');
-const Mentor = require('../models/Mentor');
-const InternalMentor = require('../models/InternalMentor');
+const mongoose = require('mongoose');
+const { getYearDb } = require('../db/connection');
+const { getInternshipModel } = require('../models/Internship');
+const { getGroupModel } = require('../models/Group');
+const { getMentorModel } = require('../models/Mentor');
+const { getInternalMentorModel } = require('../models/InternalMentor');
 const { v4: uuidv4 } = require('crypto').randomUUID ? {} : require('uuid');
+
+const getModels = (req) => {
+  const db = getYearDb(req.year);
+  return {
+    Internship: getInternshipModel(db),
+    Group: getGroupModel(db),
+    Mentor: getMentorModel(db),
+    InternalMentor: getInternalMentorModel(db),
+  };
+};
 
 // Helper to generate group ID
 const generateGroupId = () => {
@@ -15,6 +27,7 @@ const generateGroupId = () => {
 // POST generate student groups with SMART LOGIC and DUPLICATE PREVENTION
 router.post('/generate', async (req, res) => {
   try {
+    const { Internship, Group } = getModels(req);
     const {
       filters = {},
       groupSize = 5,
@@ -108,7 +121,7 @@ router.post('/generate', async (req, res) => {
     for (let i = 0; i < finalNumGroups; i++) {
       // Calculate how many students this group should have
       let studentsForThisGroup;
-      
+
       if (useExactSize) {
         // Use EXACT group size specified by user
         studentsForThisGroup = finalGroupSize;
@@ -166,7 +179,7 @@ router.post('/generate', async (req, res) => {
       if (bulkOps.length > 0) {
         await Internship.bulkWrite(bulkOps);
       }
-      
+
       if (groupDocs.length > 0) {
         await Group.insertMany(groupDocs);
       }
@@ -189,6 +202,7 @@ router.post('/generate', async (req, res) => {
 // POST check if student is already in a group
 router.post('/check-assignment', async (req, res) => {
   try {
+    const { Internship } = getModels(req);
     const { uids } = req.body; // Array of UIDs to check
 
     const students = await Internship.find({
@@ -216,6 +230,7 @@ router.post('/check-assignment', async (req, res) => {
 // POST unassign student from group
 router.post('/unassign', async (req, res) => {
   try {
+    const { Internship, Group, Mentor, InternalMentor } = getModels(req);
     const { uids } = req.body; // Array of UIDs to unassign
 
     // Get the group IDs of students being unassigned
@@ -310,9 +325,10 @@ router.post('/unassign', async (req, res) => {
 // POST clear all groups (delete all Group documents and unassign all students)
 router.post('/clear-all', async (req, res) => {
   try {
+    const { Internship, Group, Mentor, InternalMentor } = getModels(req);
     // Delete all Group documents
     const deletedGroups = await Group.deleteMany({});
-    
+
     // Unassign all students from groups
     const unassignedStudents = await Internship.updateMany(
       { assignedGroup: { $ne: null, $ne: '' } },
@@ -342,37 +358,30 @@ router.post('/clear-all', async (req, res) => {
   }
 });
 
-// GET all groups (list of unique groups)
+// GET all groups (unique Group documents)
 router.get('/list', async (req, res) => {
   try {
-    const groups = await Internship.aggregate([
-      {
-        $match: {
-          assignedGroup: { $ne: null, $ne: '' }
-        }
-      },
-      {
-        $group: {
-          _id: '$assignedGroup',
-          groupName: { $first: '$assignedGroupName' },
-          studentCount: { $sum: 1 },
-          students: {
-            $push: {
-              uid: '$uid',
-              name: '$name',
-              branch: '$branch',
-              company: '$companyName'
-            }
-          }
-        }
-      },
-      { $sort: { groupName: 1 } }
-    ]);
+    const { Group } = getModels(req);
+    const groups = await Group.find({})
+      .populate('students', 'uid name branch companyName')
+      .sort({ name: 1 });
+
+    const data = groups.map((group) => ({
+      _id: group._id,
+      groupName: group.name,
+      studentCount: group.students?.length || 0,
+      students: (group.students || []).map((student) => ({
+        uid: student.uid,
+        name: student.name,
+        branch: student.branch,
+        company: student.companyName
+      }))
+    }));
 
     res.json({
       success: true,
-      data: groups,
-      count: groups.length
+      data,
+      count: data.length
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -382,6 +391,7 @@ router.get('/list', async (req, res) => {
 // POST export ALL groups to Excel with EXACT format
 router.post('/export', async (req, res) => {
   try {
+    const { Group } = getModels(req);
     console.log('📥 Export request received');
     console.log('Request body:', JSON.stringify(req.body, null, 2));
 
@@ -400,14 +410,19 @@ router.post('/export', async (req, res) => {
     const groupsWithMentors = await Promise.all(
       groups.map(async (group) => {
         let mentorName = 'Not Assigned';
-        
+
         if (group._id) {
-          const dbGroup = await Group.findById(group._id).populate('mentor', 'name');
-          if (dbGroup && dbGroup.mentor) {
-            mentorName = dbGroup.mentor.name;
+          const dbGroup = await Group.findById(group._id)
+            .populate('externalMentor', 'name')
+            .populate('internalMentor', 'name');
+
+          if (dbGroup?.externalMentor?.name) {
+            mentorName = dbGroup.externalMentor.name;
+          } else if (dbGroup?.internalMentor?.name) {
+            mentorName = dbGroup.internalMentor.name;
           }
         }
-        
+
         return { ...group, mentorName };
       })
     );
@@ -430,7 +445,7 @@ router.post('/export', async (req, res) => {
       }));
 
       const ws = xlsx.utils.json_to_sheet(sheetData);
-      
+
       // Set column widths for better readability
       ws['!cols'] = [
         { wch: 25 }, // Student Name
@@ -461,6 +476,7 @@ router.post('/export', async (req, res) => {
 // POST export SINGLE group to Excel with EXACT format
 router.post('/export-single', async (req, res) => {
   try {
+    const { Group } = getModels(req);
     const { group } = req.body;
 
     if (!group || !group.students) {
@@ -470,9 +486,14 @@ router.post('/export-single', async (req, res) => {
     // Fetch mentor info for this group
     let mentorName = 'Not Assigned';
     if (group._id) {
-      const dbGroup = await Group.findById(group._id).populate('mentor', 'name');
-      if (dbGroup && dbGroup.mentor) {
-        mentorName = dbGroup.mentor.name;
+      const dbGroup = await Group.findById(group._id)
+        .populate('externalMentor', 'name')
+        .populate('internalMentor', 'name');
+
+      if (dbGroup?.externalMentor?.name) {
+        mentorName = dbGroup.externalMentor.name;
+      } else if (dbGroup?.internalMentor?.name) {
+        mentorName = dbGroup.internalMentor.name;
       }
     }
 
@@ -486,7 +507,7 @@ router.post('/export-single', async (req, res) => {
     }));
 
     const ws = xlsx.utils.json_to_sheet(sheetData);
-    
+
     // Set column widths for better readability
     ws['!cols'] = [
       { wch: 25 }, // Student Name
@@ -514,6 +535,7 @@ router.post('/export-single', async (req, res) => {
 // POST pick random students (only unassigned ones)
 router.post('/random-pick', async (req, res) => {
   try {
+    const { Internship } = getModels(req);
     const {
       filters = {},
       count = 1
@@ -573,6 +595,7 @@ router.post('/random-pick', async (req, res) => {
 // POST export random picked students to Excel
 router.post('/export-random', async (req, res) => {
   try {
+    const { Group } = getModels(req);
     const { students } = req.body;
 
     if (!students || !Array.isArray(students)) {
@@ -610,6 +633,7 @@ router.post('/export-random', async (req, res) => {
 // POST allocate external mentors to all groups - AVOID DUPLICATES when possible
 router.post('/allocate-all-external', async (req, res) => {
   try {
+    const { Group, Mentor } = getModels(req);
     // Get all groups that don't have an external mentor
     const groups = await Group.find({ externalMentor: null });
 
@@ -640,7 +664,7 @@ router.post('/allocate-all-external', async (req, res) => {
 
     for (const group of groups) {
       const mentor = shuffledMentors[mentorIndex % shuffledMentors.length];
-      
+
       // Update group with external mentor
       group.externalMentor = mentor._id;
       await group.save();
@@ -668,9 +692,8 @@ router.post('/allocate-all-external', async (req, res) => {
 
     res.json({
       success: true,
-      message: `Successfully allocated external mentors to ${allocations.length} groups${
-        canAllocateUniquely ? ' (unique mentors per group)' : ' (some mentors assigned to multiple groups)'
-      }`,
+      message: `Successfully allocated external mentors to ${allocations.length} groups${canAllocateUniquely ? ' (unique mentors per group)' : ' (some mentors assigned to multiple groups)'
+        }`,
       allocations,
       uniqueAllocation: canAllocateUniquely
     });
@@ -682,6 +705,7 @@ router.post('/allocate-all-external', async (req, res) => {
 // POST allocate a random external mentor to a specific group
 router.post('/:id/allocate-external-mentor', async (req, res) => {
   try {
+    const { Group, Mentor } = getModels(req);
     const groupId = req.params.id;
 
     // Find the group
@@ -739,6 +763,7 @@ router.post('/:id/allocate-external-mentor', async (req, res) => {
 // POST allocate internal mentors to all groups - AVOID DUPLICATES when possible
 router.post('/allocate-all-internal', async (req, res) => {
   try {
+    const { Group, InternalMentor } = getModels(req);
     // Get all groups that don't have an internal mentor
     const groups = await Group.find({ internalMentor: null });
 
@@ -769,7 +794,7 @@ router.post('/allocate-all-internal', async (req, res) => {
 
     for (const group of groups) {
       const mentor = shuffledMentors[mentorIndex % shuffledMentors.length];
-      
+
       // Update group with internal mentor
       group.internalMentor = mentor._id;
       await group.save();
@@ -797,9 +822,8 @@ router.post('/allocate-all-internal', async (req, res) => {
 
     res.json({
       success: true,
-      message: `Successfully allocated internal mentors to ${allocations.length} groups${
-        canAllocateUniquely ? ' (unique mentors per group)' : ' (some mentors assigned to multiple groups)'
-      }`,
+      message: `Successfully allocated internal mentors to ${allocations.length} groups${canAllocateUniquely ? ' (unique mentors per group)' : ' (some mentors assigned to multiple groups)'
+        }`,
       allocations,
       uniqueAllocation: canAllocateUniquely
     });
@@ -811,6 +835,7 @@ router.post('/allocate-all-internal', async (req, res) => {
 // POST allocate a random internal mentor to a specific group
 router.post('/:id/allocate-internal-mentor', async (req, res) => {
   try {
+    const { Group, InternalMentor } = getModels(req);
     const groupId = req.params.id;
 
     // Find the group
@@ -868,6 +893,7 @@ router.post('/:id/allocate-internal-mentor', async (req, res) => {
 // GET all groups with mentor details (enhanced list)
 router.get('/list-with-mentors', async (req, res) => {
   try {
+    const { Group, Mentor, InternalMentor } = getModels(req);
     const groups = await Group.find()
       .populate('externalMentor', 'name email')
       .populate('internalMentor', 'name email')
@@ -877,6 +903,8 @@ router.get('/list-with-mentors', async (req, res) => {
     const formattedGroups = groups.map(group => ({
       _id: group._id,
       groupName: group.name,
+      mailSent: group.mailSent === true,
+      mailSentAt: group.mailSentAt || null,
       externalMentor: group.externalMentor ? {
         _id: group.externalMentor._id,
         name: group.externalMentor.name,
@@ -910,8 +938,9 @@ router.get('/list-with-mentors', async (req, res) => {
 // GET search groups by student or mentor name
 router.get('/search', async (req, res) => {
   try {
+    const { Group, Mentor, InternalMentor } = getModels(req);
     const { query } = req.query;
-    
+
     if (!query || query.trim().length < 2) {
       return res.json({ success: true, data: [], count: 0 });
     }
@@ -927,13 +956,13 @@ router.get('/search', async (req, res) => {
     // Filter groups that match student name or mentor name
     const matchedGroups = allGroups.filter(group => {
       // Check if any student matches
-      const hasMatchingStudent = group.students.some(student => 
+      const hasMatchingStudent = group.students.some(student =>
         searchRegex.test(student.name)
       );
 
       // Check if external mentor matches
       const hasMatchingExternalMentor = group.externalMentor && searchRegex.test(group.externalMentor.name);
-      
+
       // Check if internal mentor matches
       const hasMatchingInternalMentor = group.internalMentor && searchRegex.test(group.internalMentor.name);
 
@@ -944,6 +973,8 @@ router.get('/search', async (req, res) => {
     const formattedGroups = matchedGroups.map(group => ({
       _id: group._id,
       groupName: group.name,
+      mailSent: group.mailSent === true,
+      mailSentAt: group.mailSentAt || null,
       externalMentor: group.externalMentor ? {
         _id: group.externalMentor._id,
         name: group.externalMentor.name,
@@ -978,6 +1009,7 @@ router.get('/search', async (req, res) => {
 // POST sync mentor assignments (cleanup orphaned assignments for both external and internal mentors)
 router.post('/sync-mentors', async (req, res) => {
   try {
+    const { Group, Mentor, InternalMentor } = getModels(req);
     // Sync External Mentors
     const allExternalMentors = await Mentor.find();
     const allGroups = await Group.find().select('externalMentor internalMentor');
@@ -990,7 +1022,7 @@ router.post('/sync-mentors', async (req, res) => {
 
     for (const mentor of allExternalMentors) {
       const shouldBeAssigned = assignedExternalMentorIds.includes(mentor._id.toString());
-      
+
       if (shouldBeAssigned && !mentor.isAssigned) {
         mentor.isAssigned = true;
         await mentor.save();
@@ -1015,7 +1047,7 @@ router.post('/sync-mentors', async (req, res) => {
 
     for (const mentor of allInternalMentors) {
       const shouldBeAssigned = assignedInternalMentorIds.includes(mentor._id.toString());
-      
+
       if (shouldBeAssigned && !mentor.isAssigned) {
         mentor.isAssigned = true;
         await mentor.save();
@@ -1049,8 +1081,182 @@ router.post('/sync-mentors', async (req, res) => {
 });
 
 // PUT update group (edit group details)
+router.put('/:groupId/assign-mentor', async (req, res) => {
+  try {
+    const { Group, Mentor, InternalMentor } = getModels(req);
+    const { groupId } = req.params;
+    const { mentorId, mentorType } = req.body;
+
+    if (!mentorId || typeof mentorId !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: 'mentorId is required'
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(groupId) || !mongoose.Types.ObjectId.isValid(mentorId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid groupId or mentorId'
+      });
+    }
+
+    const group = await Group.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    // Decide whether this is external or internal mentor assignment
+    let resolvedType = mentorType;
+    let MentorModel = null;
+    let groupField = null;
+
+    if (resolvedType === 'external') {
+      MentorModel = Mentor;
+      groupField = 'externalMentor';
+    } else if (resolvedType === 'internal') {
+      MentorModel = InternalMentor;
+      groupField = 'internalMentor';
+    } else {
+      // Infer mentor type by checking which collection contains the ID
+      const [externalFound, internalFound] = await Promise.all([
+        Mentor.exists({ _id: mentorId }),
+        InternalMentor.exists({ _id: mentorId })
+      ]);
+
+      if (externalFound && !internalFound) {
+        resolvedType = 'external';
+        MentorModel = Mentor;
+        groupField = 'externalMentor';
+      } else if (!externalFound && internalFound) {
+        resolvedType = 'internal';
+        MentorModel = InternalMentor;
+        groupField = 'internalMentor';
+      } else {
+        return res.status(404).json({
+          success: false,
+          message: 'Mentor not found'
+        });
+      }
+    }
+
+    const mentor = await MentorModel.findById(mentorId);
+    if (!mentor) {
+      return res.status(404).json({ success: false, message: 'Mentor not found' });
+    }
+
+    // If the mentor is already assigned to some other group, block to avoid duplicates
+    const assignedElsewhere = await Group.findOne({
+      [groupField]: mentor._id,
+      _id: { $ne: group._id }
+    }).select('name');
+
+    if (assignedElsewhere) {
+      return res.status(409).json({
+        success: false,
+        message: `Selected mentor is already assigned to "${assignedElsewhere.name}". Please pick another mentor.`
+      });
+    }
+
+    const oldMentorId = group[groupField];
+    const oldMentorIdStr = oldMentorId ? oldMentorId.toString() : null;
+    const newMentorIdStr = mentor._id.toString();
+
+    // No-op if selecting the already-assigned mentor
+    if (oldMentorIdStr === newMentorIdStr) {
+      const populatedGroup = await Group.findById(group._id)
+        .populate('externalMentor', 'name email')
+        .populate('internalMentor', 'name email')
+        .populate('students', 'uid name branch companyName email');
+
+      return res.json({
+        success: true,
+        message: 'Mentor already assigned to this group',
+        data: {
+          _id: populatedGroup._id,
+          groupName: populatedGroup.name,
+          mailSent: populatedGroup.mailSent === true,
+          mailSentAt: populatedGroup.mailSentAt || null,
+          externalMentor: populatedGroup.externalMentor ? {
+            _id: populatedGroup.externalMentor._id,
+            name: populatedGroup.externalMentor.name,
+            email: populatedGroup.externalMentor.email
+          } : null,
+          internalMentor: populatedGroup.internalMentor ? {
+            _id: populatedGroup.internalMentor._id,
+            name: populatedGroup.internalMentor.name,
+            email: populatedGroup.internalMentor.email
+          } : null,
+          studentCount: populatedGroup.students.length,
+          students: populatedGroup.students.map(s => ({
+            uid: s.uid,
+            name: s.name,
+            branch: s.branch,
+            company: s.companyName,
+            email: s.email
+          }))
+        }
+      });
+    }
+
+    // Update group reference
+    group[groupField] = mentor._id;
+    await group.save();
+
+    // Ensure selected mentor is marked as assigned
+    if (!mentor.isAssigned) {
+      mentor.isAssigned = true;
+      await mentor.save();
+    }
+
+    // Recompute old mentor assigned flag safely (only if changed)
+    if (oldMentorIdStr) {
+      const stillAssigned = await Group.exists({ [groupField]: oldMentorId });
+      await MentorModel.findByIdAndUpdate(oldMentorId, { isAssigned: !!stillAssigned });
+    }
+
+    const populatedGroup = await Group.findById(group._id)
+      .populate('externalMentor', 'name email')
+      .populate('internalMentor', 'name email')
+      .populate('students', 'uid name branch companyName email');
+
+    res.json({
+      success: true,
+      message: `${resolvedType === 'external' ? 'External' : 'Internal'} mentor assigned successfully`,
+      data: {
+        _id: populatedGroup._id,
+        groupName: populatedGroup.name,
+        mailSent: populatedGroup.mailSent === true,
+        mailSentAt: populatedGroup.mailSentAt || null,
+        externalMentor: populatedGroup.externalMentor ? {
+          _id: populatedGroup.externalMentor._id,
+          name: populatedGroup.externalMentor.name,
+          email: populatedGroup.externalMentor.email
+        } : null,
+        internalMentor: populatedGroup.internalMentor ? {
+          _id: populatedGroup.internalMentor._id,
+          name: populatedGroup.internalMentor.name,
+          email: populatedGroup.internalMentor.email
+        } : null,
+        studentCount: populatedGroup.students.length,
+        students: populatedGroup.students.map(s => ({
+          uid: s.uid,
+          name: s.name,
+          branch: s.branch,
+          company: s.companyName,
+          email: s.email
+        }))
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// PUT update group (edit group details)
 router.put('/:id', async (req, res) => {
   try {
+    const { Group } = getModels(req);
     const { id } = req.params;
     const { name, students, externalMentor, internalMentor } = req.body;
 
@@ -1068,13 +1274,20 @@ router.put('/:id', async (req, res) => {
 
     // Handle external mentor change
     if (externalMentor !== undefined) {
-      // Free old external mentor if exists
-      if (oldExternalMentor) {
-        await Mentor.findByIdAndUpdate(oldExternalMentor, { isAssigned: false });
-      }
-      
       // Assign new external mentor
       if (externalMentor) {
+        const assignedElsewhere = await Group.findOne({
+          externalMentor,
+          _id: { $ne: group._id }
+        }).select('name');
+
+        if (assignedElsewhere) {
+          return res.status(409).json({
+            success: false,
+            message: `Selected external mentor is already assigned to "${assignedElsewhere.name}". Please pick another mentor.`
+          });
+        }
+
         const mentor = await Mentor.findById(externalMentor);
         if (!mentor) {
           return res.status(404).json({ success: false, message: 'External mentor not found' });
@@ -1089,13 +1302,20 @@ router.put('/:id', async (req, res) => {
 
     // Handle internal mentor change
     if (internalMentor !== undefined) {
-      // Free old internal mentor if exists
-      if (oldInternalMentor) {
-        await InternalMentor.findByIdAndUpdate(oldInternalMentor, { isAssigned: false });
-      }
-      
       // Assign new internal mentor
       if (internalMentor) {
+        const assignedElsewhere = await Group.findOne({
+          internalMentor,
+          _id: { $ne: group._id }
+        }).select('name');
+
+        if (assignedElsewhere) {
+          return res.status(409).json({
+            success: false,
+            message: `Selected internal mentor is already assigned to "${assignedElsewhere.name}". Please pick another mentor.`
+          });
+        }
+
         const mentor = await InternalMentor.findById(internalMentor);
         if (!mentor) {
           return res.status(404).json({ success: false, message: 'Internal mentor not found' });
@@ -1109,6 +1329,17 @@ router.put('/:id', async (req, res) => {
     }
 
     await group.save();
+
+    // Recompute old mentor assignment flags safely (handles mentors shared by mistake)
+    if (oldExternalMentor && (!group.externalMentor || oldExternalMentor.toString() !== group.externalMentor.toString())) {
+      const stillAssigned = await Group.exists({ externalMentor: oldExternalMentor });
+      await Mentor.findByIdAndUpdate(oldExternalMentor, { isAssigned: !!stillAssigned });
+    }
+
+    if (oldInternalMentor && (!group.internalMentor || oldInternalMentor.toString() !== group.internalMentor.toString())) {
+      const stillAssigned = await Group.exists({ internalMentor: oldInternalMentor });
+      await InternalMentor.findByIdAndUpdate(oldInternalMentor, { isAssigned: !!stillAssigned });
+    }
 
     // Populate mentors for response
     await group.populate('externalMentor internalMentor');

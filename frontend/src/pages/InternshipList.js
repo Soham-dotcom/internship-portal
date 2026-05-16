@@ -208,7 +208,7 @@ const InternshipList = () => {
       {/* Page header */}
       <div className="page-header flex items-start justify-between">
         <div>
-          <h1 className="page-title">Internship Overview</h1>
+          <h1 className="page-title">Student Internship Records</h1>
           <p className="page-subtitle">
             {filteredInternships.length} of {internships.length} records displayed
           </p>
@@ -218,7 +218,7 @@ const InternshipList = () => {
             Export to Excel
           </button>
           <button onClick={() => setShowModal(true)} className="btn-primary">
-            Add Student Record
+            Add Internship Record
           </button>
         </div>
       </div>
@@ -242,15 +242,15 @@ const InternshipList = () => {
               <input type="text" name="company" value={filters.company} onChange={handleFilterChange} placeholder="Filter by company" className="form-input" />
             </div>
             <div>
-              <label className="form-label">External Mentor</label>
-              <input type="text" name="mentor" value={filters.mentor} onChange={handleFilterChange} placeholder="Filter by mentor" className="form-input" />
+              <label className="form-label">External Evaluator</label>
+              <input type="text" name="mentor" value={filters.mentor} onChange={handleFilterChange} placeholder="Filter by evaluator" className="form-input" />
             </div>
             <div>
               <label className="form-label">Year (UID prefix)</label>
               <input type="text" name="year" value={filters.year} onChange={handleFilterChange} placeholder="e.g. 2024" className="form-input" />
             </div>
             <div>
-              <label className="form-label">Internship Type</label>
+              <label className="form-label">Placement Type</label>
               <input type="text" name="type" value={filters.type} onChange={handleFilterChange} placeholder="e.g. Off-Campus" className="form-input" />
             </div>
           </div>
