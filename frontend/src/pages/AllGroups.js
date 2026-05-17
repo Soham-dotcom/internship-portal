@@ -14,7 +14,7 @@ import {
   clearAllGroups,
   sendGroupMail
 } from '../api/groups';
-import axios from 'axios';
+import { axiosInstance } from '../api/axios';
 import * as XLSX from 'xlsx';
 import { getMailDraft, saveMailDraft, listSenderEmails, addSenderEmail } from '../api/mail';
 
@@ -247,8 +247,8 @@ const AllGroups = () => {
     });
     try {
       const [externalRes, internalRes] = await Promise.all([
-        axios.get('http://localhost:5000/api/upload/mentors'),
-        axios.get('http://localhost:5000/api/upload/internal-mentors')
+        axiosInstance.get('/upload/mentors'),
+        axiosInstance.get('/upload/internal-mentors')
       ]);
       if (externalRes.data.success) setAvailableExternalMentors(externalRes.data.data);
       if (internalRes.data.success) setAvailableInternalMentors(internalRes.data.data);
@@ -269,11 +269,11 @@ const AllGroups = () => {
 
     try {
       if (type === 'external' && availableExternalMentors.length === 0) {
-        const res = await axios.get('http://localhost:5000/api/upload/mentors');
+        const res = await axiosInstance.get('/upload/mentors');
         if (res.data.success) setAvailableExternalMentors(res.data.data);
       }
       if (type === 'internal' && availableInternalMentors.length === 0) {
-        const res = await axios.get('http://localhost:5000/api/upload/internal-mentors');
+        const res = await axiosInstance.get('/upload/internal-mentors');
         if (res.data.success) setAvailableInternalMentors(res.data.data);
       }
     } catch (error) {
@@ -292,11 +292,11 @@ const AllGroups = () => {
 
     try {
       if (nextType === 'external' && availableExternalMentors.length === 0) {
-        const res = await axios.get('http://localhost:5000/api/upload/mentors');
+        const res = await axiosInstance.get('/upload/mentors');
         if (res.data.success) setAvailableExternalMentors(res.data.data);
       }
       if (nextType === 'internal' && availableInternalMentors.length === 0) {
-        const res = await axios.get('http://localhost:5000/api/upload/internal-mentors');
+        const res = await axiosInstance.get('/upload/internal-mentors');
         if (res.data.success) setAvailableInternalMentors(res.data.data);
       }
     } catch (error) {
