@@ -24,6 +24,16 @@ const generateGroupId = () => {
   return typeof uuidv4 === 'function' ? uuidv4() : `group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 };
 
+const getExistingGroupNumbers = async (Group) => {
+  const docs = await Group.find({ name: { $regex: /^Group\s+\d+$/ } }).select('name');
+  const numbers = new Set();
+  docs.forEach((doc) => {
+    const match = String(doc.name).match(/^Group\s+(\d+)$/);
+    if (match) numbers.add(Number(match[1]));
+  });
+  return numbers;
+};
+
 // POST generate student groups with SMART LOGIC and DUPLICATE PREVENTION
 router.post('/generate', async (req, res) => {
   try {
@@ -113,6 +123,22 @@ router.post('/generate', async (req, res) => {
       students.sort(() => Math.random() - 0.5);
     }
 
+    const existingGroupNumbers = assignToGroups ? await getExistingGroupNumbers(Group) : new Set();
+
+    const pickNextGroupNumbers = (count, used) => {
+      const picked = [];
+      let n = 1;
+      while (picked.length < count) {
+        if (!used.has(n)) {
+          picked.push(n);
+        }
+        n += 1;
+      }
+      return picked;
+    };
+
+    const groupNumbers = pickNextGroupNumbers(finalNumGroups, existingGroupNumbers);
+
     // Create groups with EXACT groupSize when both parameters specified
     const groups = [];
     let studentIndex = 0;
@@ -136,10 +162,11 @@ router.post('/generate', async (req, res) => {
       const groupStudents = students.slice(studentIndex, studentIndex + studentsForThisGroup);
 
       if (groupStudents.length > 0) {
+        const groupNumber = groupNumbers[i] || (i + 1);
         groups.push({
           groupId: groupId,
-          groupNumber: i + 1,
-          groupName: `Group ${i + 1}`,
+          groupNumber: groupNumber,
+          groupName: `Group ${groupNumber}`,
           students: groupStudents
         });
         studentIndex += studentsForThisGroup;
@@ -181,8 +208,6 @@ router.post('/generate', async (req, res) => {
       }
 
       if (groupDocs.length > 0) {
-        const groupNames = groupDocs.map((doc) => doc.name);
-        await Group.deleteMany({ name: { $in: groupNames } });
         await Group.insertMany(groupDocs);
       }
     }
