@@ -18,6 +18,7 @@ function createTransporter({ user, pass } = {}) {
     SMTP_SECURE,
     SMTP_USER,
     SMTP_PASS,
+    SMTP_CONNECTION_TIMEOUT_MS,
   } = process.env;
 
   const authUser = user || SMTP_USER;
@@ -36,6 +37,9 @@ function createTransporter({ user, pass } = {}) {
         user: authUser,
         pass: authPass,
       },
+      connectionTimeout: Number(SMTP_CONNECTION_TIMEOUT_MS) || 20000,
+      greetingTimeout: Number(SMTP_CONNECTION_TIMEOUT_MS) || 20000,
+      socketTimeout: Number(SMTP_CONNECTION_TIMEOUT_MS) || 20000,
     });
   }
 
@@ -48,6 +52,9 @@ function createTransporter({ user, pass } = {}) {
         user: authUser,
         pass: authPass,
       },
+      connectionTimeout: Number(SMTP_CONNECTION_TIMEOUT_MS) || 20000,
+      greetingTimeout: Number(SMTP_CONNECTION_TIMEOUT_MS) || 20000,
+      socketTimeout: Number(SMTP_CONNECTION_TIMEOUT_MS) || 20000,
     });
   }
 
@@ -68,6 +75,9 @@ function createTransporter({ user, pass } = {}) {
       user: authUser,
       pass: authPass,
     },
+    connectionTimeout: Number(SMTP_CONNECTION_TIMEOUT_MS) || 20000,
+    greetingTimeout: Number(SMTP_CONNECTION_TIMEOUT_MS) || 20000,
+    socketTimeout: Number(SMTP_CONNECTION_TIMEOUT_MS) || 20000,
   });
 }
 

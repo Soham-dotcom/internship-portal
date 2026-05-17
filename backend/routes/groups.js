@@ -181,6 +181,8 @@ router.post('/generate', async (req, res) => {
       }
 
       if (groupDocs.length > 0) {
+        const groupNames = groupDocs.map((doc) => doc.name);
+        await Group.deleteMany({ name: { $in: groupNames } });
         await Group.insertMany(groupDocs);
       }
     }
