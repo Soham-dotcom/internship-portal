@@ -7,6 +7,7 @@
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "nodemon backend/server.js",
     "client": "cd frontend && npm start",
+    "start": "node backend/server.js",
     "install-all": "npm install && cd frontend && npm install",
     "seed": "node backend/seed.js",
     "seed-new": "node backend/seed-new.js",
