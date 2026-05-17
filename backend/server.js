@@ -43,6 +43,7 @@ const normalizeOrigin = (value) => String(value || '').trim().replace(/\/+$/, ''
 const allowedOrigins = new Set(
   [
     'http://localhost:3000',
+    'https://internship-portal-seven-tau.vercel.app',
     normalizeOrigin(process.env.FRONTEND_URL),
     ...String(process.env.FRONTEND_URLS || '')
       .split(',')

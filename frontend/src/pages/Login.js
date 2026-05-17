@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getAuthConfig, login } from '../api/axios';
 import { setAuthSession } from '../auth/session';
@@ -15,7 +15,7 @@ const Login = () => {
   const location = useLocation();
   const fromPath = location.state?.from?.pathname || '/';
 
-  useEffect(() => {
+  const loadAuthConfig = useCallback(() => {
     let active = true;
 
     getAuthConfig()
@@ -36,6 +36,8 @@ const Login = () => {
       active = false;
     };
   }, []);
+
+  useEffect(() => loadAuthConfig(), [loadAuthConfig]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();

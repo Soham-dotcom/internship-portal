@@ -34,6 +34,9 @@ axiosInstance.interceptors.request.use((config) => {
 axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (!error?.response) {
+      error.message = 'Network error. Please check your connection or try again.';
+    }
     if (error?.response?.status === 401) {
       clearAuthSession();
       if (window.location.pathname !== '/login') {

@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { normalizeCompanyName, similarityScore } from '../utils/companyNormalization';
 import { 
@@ -36,25 +36,25 @@ const ExcelUpload = () => {
   const [internalMentorList, setInternalMentorList] = useState([]);
   const [loadingInternalMentorList, setLoadingInternalMentorList] = useState(false);
 
-  useEffect(() => { fetchExternalMentors(); fetchInternalMentors(); }, []);
-
-  const fetchExternalMentors = async () => {
+  const fetchExternalMentors = useCallback(async () => {
     setLoadingExternalMentorList(true);
     try {
       const response = await getExternalMentors();
       if (response.data.success) setExternalMentorList(response.data.data);
     } catch (error) { console.error('Error fetching external mentors:', error); }
     finally { setLoadingExternalMentorList(false); }
-  };
+  }, []);
 
-  const fetchInternalMentors = async () => {
+  const fetchInternalMentors = useCallback(async () => {
     setLoadingInternalMentorList(true);
     try {
       const response = await getInternalMentors();
       if (response.data.success) setInternalMentorList(response.data.data);
     } catch (error) { console.error('Error fetching internal mentors:', error); }
     finally { setLoadingInternalMentorList(false); }
-  };
+  }, []);
+
+  useEffect(() => { fetchExternalMentors(); fetchInternalMentors(); }, [fetchExternalMentors, fetchInternalMentors]);
 
   const validateFile = (selectedFile, setMsg) => {
     const validTypes = ['.xlsx', '.xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'];
@@ -289,7 +289,7 @@ const ExcelUpload = () => {
 
         {/* Step 1 */}
         <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 1 — Download Template</p>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 1 â€” Download Template</p>
           <p className="text-sm text-gray-600 mb-3">Download the Excel template to see the required column format.</p>
           <button onClick={onDownloadTemplate} className="btn-secondary">{templateLabel}</button>
         </div>
@@ -298,7 +298,7 @@ const ExcelUpload = () => {
 
         {/* Step 2 */}
         <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 2 — Upload File</p>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 2 â€” Upload File</p>
           <label className="form-label">{fileInputLabel}</label>
           <div className="flex gap-3 items-start flex-wrap">
             <input
@@ -319,7 +319,7 @@ const ExcelUpload = () => {
           <>
             <hr className="border-gray-100" />
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 3 — Preview & Import</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 3 â€” Preview & Import</p>
               <p className="text-sm text-gray-600 mb-3">
                 {parsedRows.length} records ready to import.
                 {parsedRows.length > 10 ? ` Showing first 10 of ${parsedRows.length}.` : ''}
@@ -365,7 +365,7 @@ const ExcelUpload = () => {
                     <tr key={item._id}>
                       <td>{i + 1}</td>
                       {previewColumns.map(col => <td key={col.key}>{item[col.key]}</td>)}
-                      <td>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '—'}</td>
+                      <td>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'â€”'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -389,7 +389,7 @@ const ExcelUpload = () => {
         </div>
       </div>
 
-      {/* Section 1 — Student Data */}
+      {/* Section 1 â€” Student Data */}
       <div className="section-card mb-6">
         <div className="section-card-header">
           <h2 className="section-title">Student Internship Records</h2>
@@ -417,7 +417,7 @@ const ExcelUpload = () => {
           )}
 
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 1 — Download Template</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 1 â€” Download Template</p>
             <p className="text-sm text-gray-600 mb-3">Download the template to see required column headers and format.</p>
             <button onClick={handleDownloadTemplate} className="btn-secondary">Download Student Data Template</button>
           </div>
@@ -425,7 +425,7 @@ const ExcelUpload = () => {
           <hr className="border-gray-100" />
 
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 2 — Upload File</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 2 â€” Upload File</p>
             <label className="form-label">Select Excel File</label>
             <div className="flex gap-3 items-start flex-wrap">
               <input
@@ -445,7 +445,7 @@ const ExcelUpload = () => {
             <>
               <hr className="border-gray-100" />
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 3 — Preview & Import</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 3 â€” Preview & Import</p>
                 <p className="text-sm text-gray-600 mb-3">
                   {parsedData.length} valid records ready.{parsedData.length > 10 ? ` Showing first 10 of ${parsedData.length}.` : ''}
                 </p>
@@ -481,7 +481,7 @@ const ExcelUpload = () => {
         </div>
       </div>
 
-      {/* Section 2 — External Evaluators */}
+      {/* Section 2 â€” External Evaluators */}
       <UploadSection
         title="External Evaluators (Industry)"
         subtitle="Import external evaluators from Excel"
@@ -503,7 +503,7 @@ const ExcelUpload = () => {
         existingLabel="Current External Evaluators"
       />
 
-      {/* Section 3 — Internal Examiners */}
+      {/* Section 3 â€” Internal Examiners */}
       <div className="mt-6">
         <UploadSection
           title="Internal Examiners (Faculty)"

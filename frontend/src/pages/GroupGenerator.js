@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx';
-import { exportGroups as exportGroupsOld } from '../api/axios';
 import { generateGroups, listGroups, unassignStudents } from '../api/groups';
 
 const branches = ['COMPS', 'EXTC', 'CSE', 'MCA', 'AIML', 'IT', 'MECH', 'ETRX'];
@@ -59,14 +58,14 @@ const GroupGenerator = () => {
     }
   };
 
-  const fetchExistingGroups = async () => {
+  const fetchExistingGroups = useCallback(async () => {
     try {
       const response = await listGroups();
       if (response.data.success) setExistingGroups(response.data.data);
     } catch (error) {
       console.error('Error fetching existing groups:', error);
     }
-  };
+  }, []);
 
   const handleUnassignGroup = async (groupId) => {
     const group = existingGroups.find(g => g._id === groupId);
@@ -81,7 +80,7 @@ const GroupGenerator = () => {
     }
   };
 
-  React.useEffect(() => { fetchExistingGroups(); }, []);
+  useEffect(() => { fetchExistingGroups(); }, [fetchExistingGroups]);
 
   const handleExportGroups = async () => {
     try {

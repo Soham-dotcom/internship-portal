@@ -1,6 +1,6 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import axiosInstance, { listMentorDirectory, createMentor, updateMentor } from '../api/axios';
+import { axiosInstance, listMentorDirectory, createMentor, updateMentor } from '../api/axios';
 
 const AllMentors = () => {
   const location = useLocation();
@@ -28,7 +28,37 @@ const AllMentors = () => {
   const [message, setMessage] = useState({ type: '', text: '' });
   const mentorsPerPage = 10;
 
-  useEffect(() => { fetchExternalMentors(); fetchInternalMentors(); }, []);
+  const fetchExternalMentors = useCallback(async () => {
+    try {
+      setExternalLoading(true);
+      const response = await listMentorDirectory('external');
+      if (response.data.success) {
+        setExternalMentors(response.data.data);
+        setFilteredExternalMentors(response.data.data);
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error loading external evaluators' });
+    } finally {
+      setExternalLoading(false);
+    }
+  }, []);
+
+  const fetchInternalMentors = useCallback(async () => {
+    try {
+      setInternalLoading(true);
+      const response = await listMentorDirectory('internal');
+      if (response.data.success) {
+        setInternalMentors(response.data.data);
+        setFilteredInternalMentors(response.data.data);
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error loading internal examiners' });
+    } finally {
+      setInternalLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchExternalMentors(); fetchInternalMentors(); }, [fetchExternalMentors, fetchInternalMentors]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -58,31 +88,6 @@ const AllMentors = () => {
     }
   }, [internalSearchQuery, internalMentors]);
 
-  const fetchExternalMentors = async () => {
-    try {
-      setExternalLoading(true);
-      const response = await listMentorDirectory('external');
-      if (response.data.success) {
-        setExternalMentors(response.data.data);
-        setFilteredExternalMentors(response.data.data);
-      }
-    } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error loading external evaluators' });
-    } finally { setExternalLoading(false); }
-  };
-
-  const fetchInternalMentors = async () => {
-    try {
-      setInternalLoading(true);
-      const response = await listMentorDirectory('internal');
-      if (response.data.success) {
-        setInternalMentors(response.data.data);
-        setFilteredInternalMentors(response.data.data);
-      }
-    } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error loading internal examiners' });
-    } finally { setInternalLoading(false); }
-  };
 
   const handleDeleteExternalMentor = async (mentorId, mentorName) => {
     if (!window.confirm(`Delete External Evaluator: ${mentorName}? This action cannot be undone.`)) return;
@@ -394,7 +399,7 @@ const AllMentors = () => {
               {totalPages > 1 ? (
                 <>
                   <p className="text-xs text-gray-500">
-                    Showing {indexOfFirstMentor + 1}–{Math.min(indexOfLastMentor, filteredMentors.length)} of {filteredMentors.length} evaluators
+                    Showing {indexOfFirstMentor + 1}â€“{Math.min(indexOfLastMentor, filteredMentors.length)} of {filteredMentors.length} evaluators
                   </p>
                   <div className="flex gap-2">
                     <button

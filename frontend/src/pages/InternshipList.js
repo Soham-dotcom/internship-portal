@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getInternships, createInternship } from '../api/axios';
 import * as XLSX from 'xlsx';
 
@@ -40,16 +40,7 @@ const InternshipList = () => {
     remarks: '',
   });
 
-  useEffect(() => {
-    fetchInternships();
-  }, []);
-
-  useEffect(() => {
-    applyFilters();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, internships]);
-
-  const fetchInternships = async () => {
+  const fetchInternships = useCallback(async () => {
     try {
       const response = await getInternships();
       if (response.data.success) {
@@ -61,9 +52,9 @@ const InternshipList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const applyFilters = () => {
+  const applyFilters = useCallback(() => {
     let filtered = [...internships];
 
     if (filters.branch) {
@@ -92,7 +83,15 @@ const InternshipList = () => {
     }
 
     setFilteredInternships(filtered);
-  };
+  }, [filters, internships]);
+
+  useEffect(() => {
+    fetchInternships();
+  }, [fetchInternships]);
+
+  useEffect(() => {
+    applyFilters();
+  }, [applyFilters]);
 
   const handleFilterChange = (e) => {
     setFilters({

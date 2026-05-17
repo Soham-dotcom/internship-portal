@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { randomPick, exportRandom } from '../api/groups';
 
 const branches = ['COMPS', 'EXTC', 'CSE', 'MCA', 'AIML', 'IT', 'MECH', 'ETRX'];
@@ -165,7 +165,7 @@ const StudentPicker = () => {
                     <td>
                       <span className="badge badge-green">{student.status}</span>
                     </td>
-                    <td>{student.mentor || '—'}</td>
+                    <td>{student.mentor || 'â€”'}</td>
                     <td className="text-xs">{student.email}</td>
                   </tr>
                 ))}

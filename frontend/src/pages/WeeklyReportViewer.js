@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { getWeeklyReports } from '../api/axios';
 
 const WeeklyReportViewer = () => {
@@ -8,7 +8,7 @@ const WeeklyReportViewer = () => {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [searchTerm, setSearchTerm] = useState('');
 
-  const fetchData = async (weekCount = weeks) => {
+  const fetchData = useCallback(async (weekCount = weeks) => {
     setLoading(true);
     setMessage({ type: '', text: '' });
     try {
@@ -24,9 +24,9 @@ const WeeklyReportViewer = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [weeks]);
 
-  useEffect(() => { fetchData(weeks); }, []);
+  useEffect(() => { fetchData(weeks); }, [fetchData, weeks]);
 
   const weekColumns = Array.from({ length: weeks }, (_, i) => `week${i + 1}`);
 
