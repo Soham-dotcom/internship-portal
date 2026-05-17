@@ -1,9 +1,9 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import api from '../api/axios';
+import { axiosInstance } from '../api/axios';
 
 const CompanyAnalytics = () => {
   const [companies, setCompanies]             = useState([]);
@@ -11,7 +11,6 @@ const CompanyAnalytics = () => {
   const [branches, setBranches]               = useState([]);
   const [mentors, setMentors]                 = useState([]);
   const [companyBranches, setCompanyBranches] = useState([]);
-  const [types, setTypes]                     = useState([]);
   const [techDistribution, setTechDistribution] = useState(null);
   const [techPositions, setTechPositions]     = useState([]);
   const [nonTechPositions, setNonTechPositions] = useState([]);
@@ -22,21 +21,18 @@ const CompanyAnalytics = () => {
   const [currentPage, setCurrentPage]         = useState(1);
   const itemsPerPage = 15;
 
-  useEffect(() => { fetchAnalytics(); }, []);
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     try {
       setLoading(true);
       const [companiesRes, branchesRes, mentorsRes, companyBranchesRes,
-             typesRes, techDistRes, techPosRes, nonTechPosRes] = await Promise.all([
-        api.get('/analytics/companies'),
-        api.get('/analytics/branches'),
-        api.get('/analytics/mentors'),
-        api.get('/analytics/companies/branches'),
-        api.get('/analytics/types'),
-        api.get('/analytics/tech-distribution'),
-        api.get('/analytics/positions/tech'),
-        api.get('/analytics/positions/non-tech'),
+             techDistRes, techPosRes, nonTechPosRes] = await Promise.all([
+        axiosInstance.get('/analytics/companies'),
+        axiosInstance.get('/analytics/branches'),
+        axiosInstance.get('/analytics/mentors'),
+        axiosInstance.get('/analytics/companies/branches'),
+        axiosInstance.get('/analytics/tech-distribution'),
+        axiosInstance.get('/analytics/positions/tech'),
+        axiosInstance.get('/analytics/positions/non-tech'),
       ]);
       if (companiesRes.data.success) {
         const list = companiesRes.data.data || [];
@@ -46,7 +42,6 @@ const CompanyAnalytics = () => {
       if (branchesRes.data.success)       setBranches(branchesRes.data.data);
       if (mentorsRes.data.success)        setMentors(mentorsRes.data.data);
       if (companyBranchesRes.data.success) setCompanyBranches(companyBranchesRes.data.data);
-      if (typesRes.data.success)          setTypes(typesRes.data.data);
       if (techDistRes.data.success) {
         const d = techDistRes.data.data;
         setTechDistribution([
@@ -61,20 +56,22 @@ const CompanyAnalytics = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => { fetchAnalytics(); }, [fetchAnalytics]);
 
   const handleSearch = async (query) => {
     setSearchQuery(query);
     if (query.length < 2) { setSearchResults([]); return; }
     try {
-      const response = await api.get(`/analytics/companies/search?name=${query}`);
+      const response = await axiosInstance.get(`/analytics/companies/search?name=${query}`);
       if (response.data.success) setSearchResults(response.data.data);
     } catch (error) { console.error('Search error:', error); }
   };
 
   const handleSelectCompany = async (companyName) => {
     try {
-      const response = await api.get(`/analytics/companies/details/${companyName}`);
+      const response = await axiosInstance.get(`/analytics/companies/details/${companyName}`);
       if (response.data.success) {
         setSelectedCompany(response.data.data);
         setSearchQuery('');
@@ -119,7 +116,7 @@ const CompanyAnalytics = () => {
         </div>
         <div className="stat-card border-l-4 border-blue-500">
           <p className="stat-label">Top Recruiting Organization</p>
-          <p className="text-lg font-bold text-gray-900 mt-1 leading-tight">{topCompany?.companyName || topCompany?._id || '—'}</p>
+          <p className="text-lg font-bold text-gray-900 mt-1 leading-tight">{topCompany?.companyName || topCompany?._id || 'â€”'}</p>
           <p className="stat-secondary">{topCompany?.count ?? 0} students</p>
         </div>
       </div>
@@ -140,7 +137,7 @@ const CompanyAnalytics = () => {
                   <button key={idx} onClick={() => handleSelectCompany(company._id)}
                     className="w-full text-left px-4 py-2.5 hover:bg-blue-50 border-b border-gray-100 last:border-b-0">
                     <div className="text-sm font-medium text-gray-900">{company.companyName || company._id}</div>
-                    <div className="text-xs text-gray-500">{company.location} — {company.count} student(s)</div>
+                    <div className="text-xs text-gray-500">{company.location} â€” {company.count} student(s)</div>
                   </button>
                 ))}
               </div>
@@ -183,7 +180,7 @@ const CompanyAnalytics = () => {
                         <td className="font-medium text-gray-900">{student.name}</td>
                         <td className="font-mono text-xs text-gray-600">{student.uid}</td>
                         <td><span className="badge badge-blue">{student.branch}</span></td>
-                        <td className="text-gray-600">{student.internshipTitle || '—'}</td>
+                        <td className="text-gray-600">{student.internshipTitle || 'â€”'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -329,7 +326,7 @@ const CompanyAnalytics = () => {
             <div>
               <h2 className="section-title">Company-wise Department Distribution</h2>
               <p className="text-xs text-gray-500 mt-0.5">
-                Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, companyBranches.length)} of {companyBranches.length} companies
+                Showing {(currentPage - 1) * itemsPerPage + 1}â€“{Math.min(currentPage * itemsPerPage, companyBranches.length)} of {companyBranches.length} companies
               </p>
             </div>
           </div>

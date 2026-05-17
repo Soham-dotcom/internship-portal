@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   listGroupsWithMentors, 
   exportGroups, 
@@ -11,7 +11,6 @@ import {
   syncMentors,
   updateGroup,
   assignMentorToGroup,
-  clearAllGroups,
   sendGroupMail
 } from '../api/groups';
 import { axiosInstance } from '../api/axios';
@@ -64,7 +63,24 @@ const AllGroups = () => {
   const [selectedMentorId, setSelectedMentorId] = useState('');
   const [assigningMentorByGroupId, setAssigningMentorByGroupId] = useState({});
 
-  useEffect(() => { fetchGroups(); }, []);
+  const fetchGroups = useCallback(async () => {
+    setLoading(true);
+    setMessage({ type: '', text: '' });
+    try {
+      const response = await listGroupsWithMentors();
+      if (response.data.success) {
+        setGroups(response.data.data);
+        setFilteredGroups(response.data.data);
+        setMessage({ type: 'success', text: `Loaded ${response.data.count} groups` });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error loading groups' });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchGroups(); }, [fetchGroups]);
 
   useEffect(() => {
     if (searchQuery.trim() === '') {
@@ -87,23 +103,6 @@ const AllGroups = () => {
     }, 500);
     return () => clearTimeout(timer);
   }, [searchQuery, groups]);
-
-  const fetchGroups = async () => {
-    setLoading(true);
-    setMessage({ type: '', text: '' });
-    try {
-      const response = await listGroupsWithMentors();
-      if (response.data.success) {
-        setGroups(response.data.data);
-        setFilteredGroups(response.data.data);
-        setMessage({ type: 'success', text: `Loaded ${response.data.count} groups` });
-      }
-    } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || 'Error loading groups' });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const toggleGroup = (groupId) => {
     const newExpanded = new Set(expandedGroups);
@@ -761,7 +760,7 @@ const AllGroups = () => {
                       onClick={() => toggleGroup(group._id)}
                       className="text-gray-400 hover:text-gray-700 font-bold text-sm w-6"
                     >
-                      {isExpanded ? '▼' : '▶'}
+                      {isExpanded ? 'â–¼' : 'â–¶'}
                     </button>
                     <div>
                       <h3 className="section-title mb-0">{group.groupName}</h3>
@@ -835,7 +834,7 @@ const AllGroups = () => {
                             <td className="font-medium">{student.name}</td>
                             <td>{student.uid}</td>
                             <td><span className="badge badge-blue">{student.branch}</span></td>
-                            <td>{student.company || '—'}</td>
+                            <td>{student.company || 'â€”'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -874,7 +873,7 @@ const AllGroups = () => {
                   onChange={(e) => setEditFormData({ ...editFormData, externalMentor: e.target.value })}
                   className="form-select"
                 >
-                  <option value="">— No External Evaluator —</option>
+                  <option value="">â€” No External Evaluator â€”</option>
                   {availableExternalMentors.map((mentor) => (
                     <option key={mentor._id} value={mentor._id}>{mentor.name} ({mentor.company})</option>
                   ))}
@@ -887,7 +886,7 @@ const AllGroups = () => {
                   onChange={(e) => setEditFormData({ ...editFormData, internalMentor: e.target.value })}
                   className="form-select"
                 >
-                  <option value="">— No Internal Examiner —</option>
+                  <option value="">â€” No Internal Examiner â€”</option>
                   {availableInternalMentors.map((mentor) => (
                     <option key={mentor._id} value={mentor._id}>{mentor.name} ({mentor.department || 'Faculty'})</option>
                   ))}
@@ -944,7 +943,7 @@ const AllGroups = () => {
                   onChange={(e) => setSelectedMentorId(e.target.value)}
                   className="form-select"
                 >
-                  <option value="">— Select an evaluator —</option>
+                  <option value="">â€” Select an evaluator â€”</option>
                   {selectableMentorsForAssign.map((mentor) => (
                     <option key={mentor._id} value={mentor._id}>
                       {mentor.name} ({mentor.email})
@@ -1068,7 +1067,7 @@ const AllGroups = () => {
                   <option value="internal">Internal Examiner</option>
                 </select>
                 <p className="mt-1 text-xs text-gray-500">
-                  External: {mailGroup.externalMentor?.email || '—'} | Internal: {mailGroup.internalMentor?.email || '—'}
+                  External: {mailGroup.externalMentor?.email || 'â€”'} | Internal: {mailGroup.internalMentor?.email || 'â€”'}
                 </p>
               </div>
 
@@ -1094,7 +1093,7 @@ const AllGroups = () => {
                     }}
                     className="form-select"
                   >
-                    <option value="">— Select sender email —</option>
+                    <option value="">â€” Select sender email â€”</option>
                     {senderEmails.map(s => (
                       <option key={s._id} value={s._id}>{s.email}</option>
                     ))}

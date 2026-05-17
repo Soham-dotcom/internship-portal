@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { getEvaluationOverview, getEvaluationSettings, updateEvaluationSettings, updateInternship } from '../api/axios';
 
@@ -25,7 +25,7 @@ const EvaluationOverview = () => {
   const [editData, setEditData] = useState({});
   const [savingId, setSavingId] = useState(null);
 
-  const fetchRows = async () => {
+  const fetchRows = useCallback(async () => {
     setLoading(true);
     setMessage({ type: '', text: '' });
     try {
@@ -41,33 +41,33 @@ const EvaluationOverview = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const response = await getEvaluationSettings();
+      if (response.data.success && response.data.data) {
+        if (response.data.data.totalWeeks) setTotalWeeks(response.data.data.totalWeeks);
+        if (response.data.data.weights) {
+          const incoming = response.data.data.weights;
+          const legacyViva = incoming.viva;
+          setWeights((prev) => ({
+            ...prev,
+            ...incoming,
+            external_viva: incoming.external_viva ?? (legacyViva ? legacyViva / 2 : prev.external_viva),
+            internal_viva: incoming.internal_viva ?? (legacyViva ? legacyViva / 2 : prev.internal_viva),
+          }));
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load evaluation settings', error);
+    }
+  }, []);
 
   useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        const response = await getEvaluationSettings();
-        if (response.data.success && response.data.data) {
-          if (response.data.data.totalWeeks) setTotalWeeks(response.data.data.totalWeeks);
-          if (response.data.data.weights) {
-            const incoming = response.data.data.weights;
-            const legacyViva = incoming.viva;
-            setWeights((prev) => ({
-              ...prev,
-              ...incoming,
-              external_viva: incoming.external_viva ?? (legacyViva ? legacyViva / 2 : prev.external_viva),
-              internal_viva: incoming.internal_viva ?? (legacyViva ? legacyViva / 2 : prev.internal_viva),
-            }));
-          }
-        }
-      } catch (error) {
-        console.warn('Failed to load evaluation settings', error);
-      }
-    };
-
     loadSettings();
     fetchRows();
-  }, []);
+  }, [loadSettings, fetchRows]);
 
   useEffect(() => {
     const timer = setTimeout(() => {

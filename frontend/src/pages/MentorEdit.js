@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getInternships, updateInternship, deleteInternship } from '../api/axios';
 
 const MentorEdit = () => {
@@ -10,9 +10,7 @@ const MentorEdit = () => {
   const [successMessage, setSuccessMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => { fetchInternships(); }, []);
-
-  const fetchInternships = async () => {
+  const fetchInternships = useCallback(async () => {
     try {
       const res = await getInternships();
       if (res.data.success) {
@@ -24,7 +22,9 @@ const MentorEdit = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => { fetchInternships(); }, [fetchInternships]);
 
   const handleSearchChange = (value) => {
     setSearchTerm(value);
@@ -47,11 +47,6 @@ const MentorEdit = () => {
   };
 
   const handleInputChange = (field, value) => setEditData({ ...editData, [field]: value });
-
-  const handlePerformanceChange = (field, value) => setEditData({
-    ...editData,
-    performanceMetrics: { ...editData.performanceMetrics, [field]: parseInt(value) }
-  });
 
   const formatDateInput = (value) => (value ? new Date(value).toISOString().split('T')[0] : '');
   const formatDateTime = (value) => (value ? new Date(value).toLocaleString() : '');
@@ -110,7 +105,7 @@ const MentorEdit = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Panel — Student List */}
+        {/* Left Panel â€” Student List */}
         <div className="lg:col-span-1">
           <div className="section-card h-full">
             <div className="section-card-header">
@@ -147,14 +142,14 @@ const MentorEdit = () => {
           </div>
         </div>
 
-        {/* Right Panel — Edit Form */}
+        {/* Right Panel â€” Edit Form */}
         <div className="lg:col-span-2">
           {selectedInternship ? (
             <div className="section-card">
               <div className="section-card-header flex items-center justify-between">
                 <div>
                   <h2 className="section-title">Student Record: {selectedInternship.name}</h2>
-                  <p className="text-xs text-gray-500">{selectedInternship.uid} — {selectedInternship.companyName}</p>
+                  <p className="text-xs text-gray-500">{selectedInternship.uid} â€” {selectedInternship.companyName}</p>
                 </div>
                 <button onClick={() => { setSelectedInternship(null); setSuccessMessage(''); }} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
               </div>
@@ -333,7 +328,7 @@ const MentorEdit = () => {
                     <div className="space-y-2">
                       {editData.attendance.map((entry, idx) => (
                         <div key={`${entry.date || idx}`} className="text-sm text-gray-700">
-                          {formatDateTime(entry.date)} — {entry.status}
+                          {formatDateTime(entry.date)} â€” {entry.status}
                         </div>
                       ))}
                     </div>
