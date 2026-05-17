@@ -29,8 +29,9 @@ if (!process.env.MAIL_CREDENTIALS_SECRET && !process.env.ENCRYPTION_SECRET) {
   throw new Error('MAIL_CREDENTIALS_SECRET not configured');
 }
 
-// Temporary debug log (safe): confirms presence without printing secret.
-console.log('[config] MAIL_CREDENTIALS_SECRET loaded:', !!process.env.MAIL_CREDENTIALS_SECRET);
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET not configured');
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -38,8 +39,32 @@ const PORT = process.env.PORT || 5000;
 // Fail fast when MongoDB is unavailable (prevents 10s buffering timeouts)
 mongoose.set('bufferCommands', false);
 
+const normalizeOrigin = (value) => String(value || '').trim().replace(/\/+$/, '');
+const allowedOrigins = new Set(
+  [
+    'http://localhost:3000',
+    normalizeOrigin(process.env.FRONTEND_URL),
+    ...String(process.env.FRONTEND_URLS || '')
+      .split(',')
+      .map(normalizeOrigin)
+      .filter(Boolean),
+  ].filter(Boolean)
+);
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '50mb' })); // Increased limit for bulk imports
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -47,17 +72,20 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.get('/', (req, res) => {
   res.json({
     success: true,
-    message: 'SPIT Internship Portal Backend Running Successfully'
+    message: 'SPIT Internship Portal Backend Running Successfully',
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.round(process.uptime()),
   });
 });
 
 // MongoDB connection - Atlas only
-if (!process.env.MONGODB_URI) {
-  console.error('❌ Error: MONGODB_URI not found in environment variables');
+const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
+if (!MONGODB_URI) {
+  console.error('❌ Error: MONGODB_URI (or MONGO_URI) not found in environment variables');
   console.error('Please set MONGODB_URI in your .env file');
   process.exit(1);
 }
-const MONGODB_URI = process.env.MONGODB_URI;
 
 connectToMongo(MONGODB_URI)
   .then(() => console.log('MongoDB connected successfully'))
@@ -96,7 +124,13 @@ app.use('/api/evaluation-settings', evaluationSettingsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Server is running' });
+  res.json({
+    status: 'OK',
+    message: 'Server is running',
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.round(process.uptime()),
+  });
 });
 
 app.listen(PORT, () => {

@@ -1,13 +1,26 @@
 import axios from 'axios';
 import { clearAuthSession, getAuthToken } from '../auth/session';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const normalizeApiBaseUrl = (value) => {
+  const raw = String(value || '').trim().replace(/\/+$/, '');
+  if (!raw) return '';
+  return raw.endsWith('/api') ? raw : `${raw}/api`;
+};
+
+const DEFAULT_API_BASE = 'http://localhost:5000/api';
+const API_BASE_URL = normalizeApiBaseUrl(process.env.REACT_APP_API_URL) || DEFAULT_API_BASE;
+const API_TIMEOUT_MS = Number(process.env.REACT_APP_API_TIMEOUT_MS) || 20000;
+
+if (process.env.NODE_ENV === 'production' && !process.env.REACT_APP_API_URL) {
+  console.warn('[config] REACT_APP_API_URL is not set; using localhost fallback.');
+}
 
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: API_TIMEOUT_MS,
 });
 
 axiosInstance.interceptors.request.use((config) => {
@@ -30,6 +43,8 @@ axiosInstance.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+export { axiosInstance };
 
 // Auth endpoints
 export const getAuthConfig = () => {
