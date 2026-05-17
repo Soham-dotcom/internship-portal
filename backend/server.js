@@ -43,6 +43,14 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' })); // Increased limit for bulk imports
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Root health check for Render and uptime monitors
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'SPIT Internship Portal Backend Running Successfully'
+  });
+});
+
 // MongoDB connection - Atlas only
 if (!process.env.MONGODB_URI) {
   console.error('❌ Error: MONGODB_URI not found in environment variables');
