@@ -98,7 +98,10 @@ function normalizeMailError(error) {
 }
 
 function buildGroupExcelBuffer(group) {
-  const mentorName = group.externalMentor?.name || group.internalMentor?.name || 'Not Assigned';
+  const internalMentorName = group.internalMentor?.name || 'Not Assigned';
+  const externalMentorName = group.externalMentor?.name || 'Not Assigned';
+  const externalMentorEmail = group.externalMentor?.email || '';
+  const externalMentorPhone = group.externalMentor?.phone || '';
 
   // Keep the sheet aligned with existing export conventions.
   const sheetData = (group.students || []).map((student) => ({
@@ -106,7 +109,10 @@ function buildGroupExcelBuffer(group) {
     'UID': student.uid || '',
     'Branch': student.branch || '',
     'Institute Email': student.email || '',
-    'Mentor Name': mentorName,
+    'Internal Mentor Name': internalMentorName,
+    'External Mentor Name': externalMentorName,
+    'External Mentor Email': externalMentorEmail,
+    'External Mentor Phone': externalMentorPhone,
   }));
 
   const ws = xlsx.utils.json_to_sheet(sheetData);
@@ -115,7 +121,10 @@ function buildGroupExcelBuffer(group) {
     { wch: 12 },
     { wch: 15 },
     { wch: 30 },
-    { wch: 20 },
+    { wch: 22 },
+    { wch: 22 },
+    { wch: 30 },
+    { wch: 18 },
   ];
 
   const wb = xlsx.utils.book_new();
@@ -166,8 +175,8 @@ async function sendGroupMail(models, { groupId, recipientType, senderEmailId }) 
   const { Group, MailDraft, SenderEmail } = models;
   console.log('📨 [send-mail] Preparing mail', { groupId, recipientType, senderEmailId: senderEmailId || null });
   const group = await Group.findById(groupId)
-    .populate('externalMentor', 'name email')
-    .populate('internalMentor', 'name email')
+    .populate('externalMentor', 'name email phone')
+    .populate('internalMentor', 'name email phone')
     .populate('students', 'uid name branch companyName email');
 
   if (!group) {

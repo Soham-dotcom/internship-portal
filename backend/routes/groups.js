@@ -436,21 +436,33 @@ router.post('/export', async (req, res) => {
     // Fetch mentor info for all groups
     const groupsWithMentors = await Promise.all(
       groups.map(async (group) => {
-        let mentorName = 'Not Assigned';
+        let internalMentorName = 'Not Assigned';
+        let externalMentorName = 'Not Assigned';
+        let externalMentorEmail = '';
+        let externalMentorPhone = '';
 
         if (group._id) {
           const dbGroup = await Group.findById(group._id)
-            .populate('externalMentor', 'name')
+            .populate('externalMentor', 'name email phone')
             .populate('internalMentor', 'name');
 
+          if (dbGroup?.internalMentor?.name) {
+            internalMentorName = dbGroup.internalMentor.name;
+          }
           if (dbGroup?.externalMentor?.name) {
-            mentorName = dbGroup.externalMentor.name;
-          } else if (dbGroup?.internalMentor?.name) {
-            mentorName = dbGroup.internalMentor.name;
+            externalMentorName = dbGroup.externalMentor.name;
+            externalMentorEmail = dbGroup.externalMentor.email || '';
+            externalMentorPhone = dbGroup.externalMentor.phone || '';
           }
         }
 
-        return { ...group, mentorName };
+        return {
+          ...group,
+          internalMentorName,
+          externalMentorName,
+          externalMentorEmail,
+          externalMentorPhone,
+        };
       })
     );
 
@@ -462,13 +474,16 @@ router.post('/export', async (req, res) => {
         throw new Error(`Group ${idx + 1} has invalid students data`);
       }
 
-      // EXACT FORMAT: Student Name, UID, Branch, Institute Email, Mentor Name
+      // EXACT FORMAT: Student info + internal/external mentor details
       const sheetData = group.students.map((student, index) => ({
         'Student Name': student.name || '',
         'UID': student.uid || '',
         'Branch': student.branch || '',
         'Institute Email': student.email || '',
-        'Mentor Name': group.mentorName
+        'Internal Mentor Name': group.internalMentorName,
+        'External Mentor Name': group.externalMentorName,
+        'External Mentor Email': group.externalMentorEmail || '',
+        'External Mentor Phone': group.externalMentorPhone || ''
       }));
 
       const ws = xlsx.utils.json_to_sheet(sheetData);
@@ -479,7 +494,10 @@ router.post('/export', async (req, res) => {
         { wch: 12 }, // UID
         { wch: 15 }, // Branch
         { wch: 30 }, // Institute Email
-        { wch: 20 }  // Mentor Name
+        { wch: 22 }, // Internal Mentor Name
+        { wch: 22 }, // External Mentor Name
+        { wch: 30 }, // External Mentor Email
+        { wch: 18 }  // External Mentor Phone
       ];
 
       const sheetName = group.groupName || `Group ${group.groupNumber}`;
@@ -511,26 +529,35 @@ router.post('/export-single', async (req, res) => {
     }
 
     // Fetch mentor info for this group
-    let mentorName = 'Not Assigned';
+    let internalMentorName = 'Not Assigned';
+    let externalMentorName = 'Not Assigned';
+    let externalMentorEmail = '';
+    let externalMentorPhone = '';
     if (group._id) {
       const dbGroup = await Group.findById(group._id)
-        .populate('externalMentor', 'name')
+        .populate('externalMentor', 'name email phone')
         .populate('internalMentor', 'name');
 
+      if (dbGroup?.internalMentor?.name) {
+        internalMentorName = dbGroup.internalMentor.name;
+      }
       if (dbGroup?.externalMentor?.name) {
-        mentorName = dbGroup.externalMentor.name;
-      } else if (dbGroup?.internalMentor?.name) {
-        mentorName = dbGroup.internalMentor.name;
+        externalMentorName = dbGroup.externalMentor.name;
+        externalMentorEmail = dbGroup.externalMentor.email || '';
+        externalMentorPhone = dbGroup.externalMentor.phone || '';
       }
     }
 
-    // EXACT FORMAT: Student Name, UID, Branch, Institute Email, Mentor Name
+    // EXACT FORMAT: Student info + internal/external mentor details
     const sheetData = group.students.map((student, index) => ({
       'Student Name': student.name || '',
       'UID': student.uid || '',
       'Branch': student.branch || '',
       'Institute Email': student.email || '',
-      'Mentor Name': mentorName
+      'Internal Mentor Name': internalMentorName,
+      'External Mentor Name': externalMentorName,
+      'External Mentor Email': externalMentorEmail || '',
+      'External Mentor Phone': externalMentorPhone || ''
     }));
 
     const ws = xlsx.utils.json_to_sheet(sheetData);
@@ -541,7 +568,10 @@ router.post('/export-single', async (req, res) => {
       { wch: 12 }, // UID
       { wch: 15 }, // Branch
       { wch: 30 }, // Institute Email
-      { wch: 20 }  // Mentor Name
+      { wch: 22 }, // Internal Mentor Name
+      { wch: 22 }, // External Mentor Name
+      { wch: 30 }, // External Mentor Email
+      { wch: 18 }  // External Mentor Phone
     ];
 
     const wb = xlsx.utils.book_new();
@@ -922,8 +952,8 @@ router.get('/list-with-mentors', async (req, res) => {
   try {
     const { Group, Mentor, InternalMentor } = getModels(req);
     const groups = await Group.find()
-      .populate('externalMentor', 'name email')
-      .populate('internalMentor', 'name email')
+        .populate('externalMentor', 'name email phone')
+        .populate('internalMentor', 'name email phone')
       .populate('students', 'uid name branch companyName email')
       .sort({ name: 1 });
 
@@ -935,12 +965,14 @@ router.get('/list-with-mentors', async (req, res) => {
       externalMentor: group.externalMentor ? {
         _id: group.externalMentor._id,
         name: group.externalMentor.name,
-        email: group.externalMentor.email
+        email: group.externalMentor.email,
+        phone: group.externalMentor.phone
       } : null,
       internalMentor: group.internalMentor ? {
         _id: group.internalMentor._id,
         name: group.internalMentor.name,
-        email: group.internalMentor.email
+        email: group.internalMentor.email,
+        phone: group.internalMentor.phone
       } : null,
       studentCount: group.students.length,
       students: group.students.map(s => ({
@@ -976,8 +1008,8 @@ router.get('/search', async (req, res) => {
 
     // Find all groups and populate
     const allGroups = await Group.find()
-      .populate('externalMentor', 'name email')
-      .populate('internalMentor', 'name email')
+        .populate('externalMentor', 'name email phone')
+        .populate('internalMentor', 'name email phone')
       .populate('students', 'uid name branch companyName email');
 
     // Filter groups that match student name or mentor name
@@ -1005,12 +1037,14 @@ router.get('/search', async (req, res) => {
       externalMentor: group.externalMentor ? {
         _id: group.externalMentor._id,
         name: group.externalMentor.name,
-        email: group.externalMentor.email
+        email: group.externalMentor.email,
+        phone: group.externalMentor.phone
       } : null,
       internalMentor: group.internalMentor ? {
         _id: group.internalMentor._id,
         name: group.internalMentor.name,
-        email: group.internalMentor.email
+        email: group.internalMentor.email,
+        phone: group.internalMentor.phone
       } : null,
       studentCount: group.students.length,
       students: group.students.map(s => ({

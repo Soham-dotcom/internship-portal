@@ -203,6 +203,21 @@ const ExcelUpload = () => {
         const mapped = json.map(row => ({
           name: row['Name'] || row['name'] || row['Mentor Name'] || row['Full Name'] || '',
           email: row['Email'] || row['email'] || row['Gmail'] || row['gmail'] || row['Mentor Email'] || row['E-mail'] || '',
+          phone: String(
+            row['Phone']
+              || row['phone']
+              || row['PhoneNo']
+              || row['phoneno']
+              || row['Phone No']
+              || row['Phone No.']
+              || row['Phone Number']
+              || row['phone number']
+              || row['Mobile']
+              || row['Mobile No']
+              || row['Mobile No.']
+              || row['Contact']
+              || ''
+          ),
         })).filter(item => item.name && item.email);
         setData(mapped);
         setMsg({ type: mapped.length === 0 ? 'error' : 'success', text: mapped.length === 0 ? 'No valid records found. Ensure columns "Name" and "Email" exist.' : `Parsed ${mapped.length} records.` });
@@ -493,7 +508,7 @@ const ExcelUpload = () => {
         onParse={handleParseExternalMentorFile}
         isParsing={externalMentorLoading}
         parsedRows={parsedExternalMentors}
-        previewColumns={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email' }]}
+        previewColumns={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }]}
         onImport={handleImportExternalMentors}
         isImporting={externalMentorImporting}
         importLabel="Import External Evaluators"
@@ -516,7 +531,7 @@ const ExcelUpload = () => {
           onParse={handleParseInternalMentorFile}
           isParsing={internalMentorLoading}
           parsedRows={parsedInternalMentors}
-          previewColumns={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email' }]}
+          previewColumns={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }]}
           onImport={handleImportInternalMentors}
           isImporting={internalMentorImporting}
           importLabel="Import Internal Examiners"

@@ -9,7 +9,7 @@ const AllMentors = () => {
   const [mentorModalOpen, setMentorModalOpen] = useState(false);
   const [mentorModalMode, setMentorModalMode] = useState('add'); // 'add' | 'edit'
   const [mentorEditingId, setMentorEditingId] = useState(null);
-  const [mentorForm, setMentorForm] = useState({ name: '', email: '' });
+  const [mentorForm, setMentorForm] = useState({ name: '', email: '', phone: '' });
   const [mentorSaving, setMentorSaving] = useState(false);
   const [mentorFormError, setMentorFormError] = useState('');
 
@@ -73,7 +73,7 @@ const AllMentors = () => {
       setFilteredExternalMentors(externalMentors);
     } else {
       const q = externalSearchQuery.toLowerCase();
-      setFilteredExternalMentors(externalMentors.filter(m => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q)));
+      setFilteredExternalMentors(externalMentors.filter(m => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q) || String(m.phone || '').toLowerCase().includes(q)));
       setExternalCurrentPage(1);
     }
   }, [externalSearchQuery, externalMentors]);
@@ -83,7 +83,7 @@ const AllMentors = () => {
       setFilteredInternalMentors(internalMentors);
     } else {
       const q = internalSearchQuery.toLowerCase();
-      setFilteredInternalMentors(internalMentors.filter(m => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q)));
+      setFilteredInternalMentors(internalMentors.filter(m => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q) || String(m.phone || '').toLowerCase().includes(q)));
       setInternalCurrentPage(1);
     }
   }, [internalSearchQuery, internalMentors]);
@@ -136,7 +136,7 @@ const AllMentors = () => {
   const openAddMentorModal = () => {
     setMentorModalMode('add');
     setMentorEditingId(null);
-    setMentorForm({ name: '', email: '' });
+    setMentorForm({ name: '', email: '', phone: '' });
     setMentorFormError('');
     setMentorModalOpen(true);
   };
@@ -144,7 +144,7 @@ const AllMentors = () => {
   const openEditMentorModal = (mentor) => {
     setMentorModalMode('edit');
     setMentorEditingId(mentor._id);
-    setMentorForm({ name: mentor.name || '', email: mentor.email || '' });
+    setMentorForm({ name: mentor.name || '', email: mentor.email || '', phone: mentor.phone || '' });
     setMentorFormError('');
     setMentorModalOpen(true);
   };
@@ -186,6 +186,7 @@ const AllMentors = () => {
         const response = await createMentor(type, {
           name: mentorForm.name.trim(),
           email: mentorForm.email.trim(),
+          phone: mentorForm.phone,
         });
         if (response.data.success) {
           setMessage({ type: 'success', text: response.data.message || 'Evaluator added successfully' });
@@ -194,6 +195,7 @@ const AllMentors = () => {
         const response = await updateMentor(type, mentorEditingId, {
           name: mentorForm.name.trim(),
           email: mentorForm.email.trim(),
+          phone: mentorForm.phone,
         });
         if (response.data.success) {
           setMessage({ type: 'success', text: response.data.message || 'Evaluator updated successfully' });
@@ -300,7 +302,7 @@ const AllMentors = () => {
           <div className="flex gap-3">
             <input
               type="text"
-              placeholder={`Search by name or email...`}
+              placeholder={`Search by name, email, or phone...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="form-input flex-1"
@@ -330,6 +332,7 @@ const AllMentors = () => {
                   <th>#</th>
                   <th>Evaluator Name</th>
                   <th>Email</th>
+                  <th>Phone</th>
                   <th>Status</th>
                   <th>Assigned Groups</th>
                   <th>Students Handled</th>
@@ -339,7 +342,7 @@ const AllMentors = () => {
               <tbody>
                 {displayMentors.length === 0 ? (
                   <tr>
-                    <td colSpan="7" className="text-center py-10 text-gray-400">
+                    <td colSpan="8" className="text-center py-10 text-gray-400">
                       {searchQuery ? `No evaluators found matching "${searchQuery}"` : `No ${activeTab === 'external' ? 'external evaluators' : 'internal examiners'} found.`}
                     </td>
                   </tr>
@@ -349,6 +352,7 @@ const AllMentors = () => {
                       <td>{indexOfFirstMentor + index + 1}</td>
                       <td className="font-medium">{mentor.name}</td>
                       <td>{mentor.email}</td>
+                      <td>{mentor.phone || '-'}</td>
                       <td>
                         <span className={`badge ${mentor.isAssigned ? 'badge-green' : 'badge-gray'}`}>
                           {mentor.isAssigned ? 'Assigned' : 'Available'}
@@ -475,6 +479,19 @@ const AllMentors = () => {
                   disabled={mentorSaving}
                 />
                 <p className="mt-1 text-xs text-gray-500">Email must be unique across all evaluators.</p>
+              </div>
+
+              <div className="mb-2">
+                <label className="form-label">Phone</label>
+                <input
+                  type="text"
+                  value={mentorForm.phone}
+                  onChange={(e) => setMentorForm(prev => ({ ...prev, phone: e.target.value }))}
+                  className="form-input"
+                  placeholder="Phone number (text)"
+                  disabled={mentorSaving}
+                />
+                <p className="mt-1 text-xs text-gray-500">Stored as text so leading zeros are preserved.</p>
               </div>
 
               <div className="mt-6 flex gap-3">
