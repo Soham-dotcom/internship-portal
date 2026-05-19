@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { 
   listGroupsWithMentors, 
   exportGroups, 
+  exportSingleGroup,
   unassignStudents,
   allocateExternalMentorsToAll,
   allocateInternalMentorsToAll,
@@ -14,7 +15,6 @@ import {
   sendGroupMail
 } from '../api/groups';
 import { axiosInstance } from '../api/axios';
-import * as XLSX from 'xlsx';
 import { getMailDraft, saveMailDraft, listSenderEmails, addSenderEmail } from '../api/mail';
 
 const AllGroups = () => {
@@ -132,23 +132,20 @@ const AllGroups = () => {
     }
   };
 
-  const handleExportSingleGroup = (group) => {
+  const handleExportSingleGroup = async (group) => {
     try {
-      const wb = XLSX.utils.book_new();
-      const exportData = group.students.map((student, idx) => ({
-        'S.No': idx + 1, 'Student Name': student.name, 'UID': student.uid,
-        'Institutional Email': student.email || '', 'Branch': student.branch,
-        'Company': student.company || '',
-        'External Evaluator': group.externalMentor?.name || 'Not Assigned',
-        'Internal Examiner': group.internalMentor?.name || 'Not Assigned',
-      }));
-      const ws = XLSX.utils.json_to_sheet(exportData);
-      ws['!cols'] = [{ wch: 6 }, { wch: 25 }, { wch: 12 }, { wch: 30 }, { wch: 10 }, { wch: 30 }, { wch: 25 }, { wch: 25 }];
-      XLSX.utils.book_append_sheet(wb, ws, group.groupName || 'Group');
-      XLSX.writeFile(wb, `${group.groupName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
+      const response = await exportSingleGroup(group);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${group.groupName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
       setMessage({ type: 'success', text: `${group.groupName} exported successfully!` });
     } catch (error) {
-      setMessage({ type: 'error', text: 'Error exporting group' });
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Error exporting group' });
     }
   };
 

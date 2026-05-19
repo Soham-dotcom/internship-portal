@@ -975,15 +975,18 @@ router.get('/mentor-template', (req, res) => {
     const template = [
       {
         'Name': 'Dr. John Doe (External)',
-        'Email': 'john.doe@example.com'
+        'Email': 'john.doe@example.com',
+        'Phone': '9876543210'
       },
       {
         'Name': 'Prof. Jane Smith (External)',
-        'Email': 'jane.smith@example.com'
+        'Email': 'jane.smith@example.com',
+        'Phone': '9876543211'
       },
       {
         'Name': 'Dr. Ramesh Kumar (External)',
-        'Gmail': 'ramesh.kumar@gmail.com'
+        'Gmail': 'ramesh.kumar@gmail.com',
+        'Phone': '9876543212'
       }
     ];
 
@@ -1009,15 +1012,18 @@ router.get('/internal-mentor-template', (req, res) => {
     const template = [
       {
         'Name': 'Dr. Internal Mentor 1',
-        'Email': 'internal1@college.edu'
+        'Email': 'internal1@college.edu',
+        'Phone': '9876543201'
       },
       {
         'Name': 'Prof. Internal Mentor 2',
-        'Email': 'internal2@college.edu'
+        'Email': 'internal2@college.edu',
+        'Phone': '9876543202'
       },
       {
         'Name': 'Dr. Internal Mentor 3',
-        'Gmail': 'internal3@gmail.com'
+        'Gmail': 'internal3@gmail.com',
+        'Phone': '9876543203'
       }
     ];
 

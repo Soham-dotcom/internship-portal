@@ -40,6 +40,7 @@ async function buildMentorDetails(type, req) {
         _id: mentor._id,
         name: mentor.name,
         email: mentor.email,
+        phone: mentor.phone,
         isAssigned: mentor.isAssigned,
         assignedGroups: assignedGroups.map(g => ({
           _id: g._id,
@@ -78,6 +79,7 @@ router.post('/', async (req, res) => {
 
     const name = String(req.body.name || '').trim();
     const email = normalizeEmail(req.body.email);
+    const phone = req.body.phone !== undefined ? String(req.body.phone ?? '') : '';
 
     if (!name) {
       return res.status(400).json({ success: false, message: 'Name is required' });
@@ -98,7 +100,7 @@ router.post('/', async (req, res) => {
       return res.status(409).json({ success: false, message: 'Mentor with this email already exists' });
     }
 
-    const mentor = await Model.create({ name, email });
+    const mentor = await Model.create({ name, email, phone });
     res.status(201).json({ success: true, message: 'Mentor added successfully', data: mentor });
   } catch (error) {
     // Handle duplicate key error just in case
@@ -154,6 +156,10 @@ router.put('/:id', async (req, res) => {
       }
 
       update.email = email;
+    }
+
+    if (req.body.phone !== undefined) {
+      update.phone = String(req.body.phone ?? '');
     }
 
     // Optional: allow toggling isAssigned only when it won't conflict with group assignments
