@@ -1,6 +1,6 @@
 # Architecture — SPIT Internship Management & Evaluation Portal
 
-_Last verified against the code: 2026-10-04._
+_Last verified against the code: 2026-10-05._
 
 ## 1. What it is, and who uses it
 
@@ -26,9 +26,10 @@ They exist only as data.
 | Frontend | React 19 (Create React App), React Router 7, Tailwind 3, Recharts, axios, SheetJS `xlsx` |
 | Backend | Node + Express 4, Mongoose 7, multer (in-memory uploads), nodemailer, SheetJS `xlsx` |
 | Database | MongoDB Atlas |
-| Auth | bcrypt password hash + JWT (12 h), held in `localStorage` |
+| Auth | bcrypt password hash + JWT (12 h) in `localStorage`; account re-checked on every request |
 | Hosting | Frontend on Vercel, backend on Render (free tier, so it cold-starts) |
-| Tests | Jest + supertest, 40 unit tests (middleware/utils only) |
+| Tests | Jest + supertest + mongodb-memory-server: 90 unit + integration tests |
+| Backups | Nightly encrypted dump via GitHub Actions (`backend/scripts/backup.js`), 30-day retention |
 
 ## 3. Component diagram
 
@@ -97,8 +98,10 @@ There are **three** links, and they can drift apart:
 
 **Login.** `POST /api/auth/login {username, password, year}` → user lookup in `spit-common` →
 lockout check (8 failures → 15 min) → bcrypt compare → the server checks the year against the
-user's `allowedYears` → JWT `{sub, username, role, year, allowedYears}`. Switching year means
-logging in again.
+user's `allowedYears` → JWT `{sub, username, role, year, allowedYears, tv}`. Switching year means
+logging in again. On **every** request `authRequired` re-reads the user: a missing or disabled
+account, or a `tv` that no longer matches `tokenVersion`, gets 401. Role and years come from the
+database, not the token. `POST /api/auth/logout` increments `tokenVersion`.
 
 **Student import (two-step).** The browser parses the sheet with SheetJS and maps the headers.
 `POST /api/upload/import` then upserts row by row on `uid`. Only whitelisted fields
@@ -116,8 +119,15 @@ used elsewhere with 409.
 **Mailing.** `POST /api/send-mail {groupId, recipientType, senderEmailId}` → builds the group's
 Excel in memory → decrypts the chosen sender's app password → nodemailer → sets `mailSent`.
 
-**Evaluation.** Six upload endpoints each update one marks field, matched by `uid`. The
-**weighted final score is computed in the browser** (`EvaluationOverview.js`), not on the server.
+**Evaluation.** Six upload endpoints each update one marks field, matched by `uid`. A single
+student's marks are edited only through `PUT /api/internships/:id/marks` (range-validated by
+`utils/marks.js`, audited with before → after values). Weights are saved only by an explicit
+admin action and must sum to 100% (`utils/evaluationSettings.js`). The **weighted final score is
+computed in the browser** (`EvaluationOverview.js`), not on the server.
+
+**Backup.** `backup.js` reads every portal database → gzipped canonical EJSON (types preserved)
+→ AES-256-GCM. `restore.js` writes only to `RESTORE_MONGODB_URI`, checks every target is empty
+first (unless `--drop` + explicit flag). See `docs/RUNBOOK.md`.
 
 ## 6. Security model (current)
 
@@ -130,22 +140,24 @@ Excel in memory → decrypts the chosen sender's app password → nodemailer →
   are redacted in production.
 - Destructive one-off scripts are quarantined in `backend/scripts/dangerous/` behind a guard.
 
-## 7. Known issues found in the 2026-10-04 review
+## 7. Known issues (review of 2026-10-04, updated 2026-10-05)
+
+Also fixed 2026-10-05: inline mark edits on the Evaluation page were silently discarded (they went to a route that ignores marks).
 
 Severity: 🔴 act now · 🟠 fix soon · 🟡 when convenient.
 
 | # | Sev | Finding | Where |
 |---|---|---|---|
-| 1 | 🔴 | **The real student spreadsheet (~408 students: names, UIDs, phones, emails, CTC, stipend, offer-letter links) is committed and pushed to a *public* GitHub repo.** It is still in git history even if deleted. | `Internships 26 - All.csv` (commit `836a344`) |
-| 2 | 🔴 | All the hardening work (≈54 files: roles, audit log, rate limits, whitelists, tests) is **uncommitted**. One bad `git checkout` loses it, and production still runs the old code. | working tree |
-| 3 | 🟠 | The frontend never uses `isAdmin()`. Staff see admin-only buttons and get a 403 after clicking. | `auth/session.js:19`, no callers |
-| 4 | 🟠 | The Evaluation page **auto-saves weights on mount** with default values (400 ms debounce). If the settings GET is slow (Render cold start) or fails, defaults overwrite the real weights. Every admin page visit writes an audit row. Staff edits fail silently with a 403. | `EvaluationOverview.js:72-79` |
+| 1 | 🔴 | *Untracked 2026-10-05; still in history.* **The real student spreadsheet (~408 students: names, UIDs, phones, emails, CTC, stipend, offer-letter links) is committed and pushed to a *public* GitHub repo.** It is still in git history even if deleted. | `Internships 26 - All.csv` (commit `836a344`) |
+| 2 | ✅ | *Committed 2026-10-05.* All the hardening work (≈54 files: roles, audit log, rate limits, whitelists, tests) is **uncommitted**. One bad `git checkout` loses it, and production still runs the old code. | working tree |
+| 3 | ✅ | *Fixed 2026-10-05.* The frontend never used `isAdmin()`. Staff see admin-only buttons and get a 403 after clicking. | `auth/session.js:19`, no callers |
+| 4 | ✅ | *Fixed 2026-10-05.* The Evaluation page **auto-saved weights on mount** with default values (400 ms debounce). If the settings GET is slow (Render cold start) or fails, defaults overwrite the real weights. Every admin page visit writes an audit row. Staff edits fail silently with a 403. | `EvaluationOverview.js:72-79` |
 | 5 | 🟠 | Marks fields default to `0`, so "not uploaded yet" and "scored zero" look the same. The UI shows a real 0 as "-". The viva maximum (40) and external maximum (100) are hard-coded in the browser, and imports have no range check. | `Internship.js`, `EvaluationOverview.js:105-110`, `upload.js` |
 | 6 | 🟠 | Final scores are computed only in the browser, so no server API or export can return an authoritative final mark. | `EvaluationOverview.js:118` |
 | 7 | 🟠 | Group generation writes internships, then groups, without a transaction. A failure in between (e.g. duplicate group name in a concurrent run) leaves students flagged as assigned with no group. | `groups.js:197-235` |
 | 8 | 🟠 | `PUT /groups/:id` can overwrite `students[]` and `name` without updating `Internship.assignedGroup*`. Renaming a group breaks the evaluation-overview join. | `groups.js:1359` |
 | 9 | 🟠 | Bulk mentor allocation **reuses mentors** when there are fewer mentors than groups. The manual assign route forbids exactly that (409). | `groups.js:729,859` |
-| 10 | 🟠 | Marks imports, single mentor deletes and `POST /send-mail/:groupId` are **not audited**, although marks are the most integrity-sensitive data. | `upload.js`, `send-mail.js` |
+| 10 | 🟠 | Marks *imports*, single mentor deletes and `POST /send-mail/:groupId` are **not audited** (single-student mark edits now are), although marks are the most integrity-sensitive data. | `upload.js`, `send-mail.js` |
 | 11 | 🟡 | `/analytics/stipends` uses `$toDouble`, which throws on values like `-` (17 rows in real data). The endpoint is unused by the UI. | `analytics.js:171` |
 | 12 | 🟡 | Import counts "inserted" vs "updated" by comparing `createdAt`/`updatedAt` within 1 s, which is a heuristic and can be wrong. | `upload.js:695` |
 | 13 | 🟡 | Two mentor APIs (`/api/mentors` and `/api/upload/mentors*`) do the same work. N+1 queries in `buildMentorDetails`. | `mentors.js`, `upload.js` |

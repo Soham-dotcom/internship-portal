@@ -1,0 +1,53 @@
+# Plan: security, data protection and smoothness
+
+Agreed 2026-10-05. The goal: the portal's data cannot be wrongly edited or deleted, and if it
+ever is, the change is recorded and can be undone.
+
+Four layers: **Prevent** wrong changes · **Record** every change · **Recover** from any
+mistake · keep it **Smooth** so people don't make mistakes in the first place.
+
+## Product decisions (from Soham, 2026-10-05)
+
+| # | Question | Decision |
+|---|---|---|
+| D1 | Atlas plan | **Free (M0)**: no built-in backups, so we build our own (A1) |
+| D2 | Editing a year after it is locked | **Admin only**, with a recorded reason |
+| D3 | Deleting a student | **Soft delete only**. Admin alone can restore or permanently remove. |
+| D4 | Re-uploading marks | Staff may overwrite **until the marks are locked**; after that admin only |
+
+## Phases
+
+### Phase 1: urgent ✅ (2026-10-05)
+| ID | Item | Status |
+|---|---|---|
+| 0.1 | Commit the existing hardening work | ✅ |
+| 0.2 | Stop tracking the student CSV; ignore spreadsheets and backups | ✅ untracked. **Repo private + history purge pending (needs Soham)** |
+| 0.3 | Individual login per person | ⏳ Soham to create the second account (RUNBOOK §3) |
+| A1 | Nightly encrypted backups + tested restore | ✅ code + workflow; real-data restore verified. **Secrets setup pending (needs Soham)** |
+| A13 | Evaluation weights: explicit admin-only Save, server validates sum = 100 | ✅ |
+| B1 | Hide admin-only controls from staff | ✅ |
+| B3 | Disable / demote / logout take effect immediately | ✅ |
+| — | Fix: inline mark edits were silently discarded | ✅ new audited `PUT /internships/:id/marks` |
+
+### Phase 2: make mistakes recoverable
+- **A3** Soft delete for students, groups, mentors + admin Recycle Bin with restore (D3)
+- **A6** Import preview (dry run): new / changed (before → after) / errors, with "add new only" as the default
+- **A7** Range-check marks in all six marks imports (reuse `utils/marks.js`)
+- **A8** Transactions for multi-step writes (generate groups, unassign, delete cascade, clear all)
+- **A2** Snapshot before bulk actions → "Undo last import"
+
+### Phase 3: lock and trace
+- **A4** Year lock (D2) · **A5** Marks lock (D4)
+- **A14** Audit before → after values for all edits; cover imports, single deletes, mail sends
+- **A15** Admin audit-log page · **A16** "Last edited by … at …" on records
+
+### Phase 4: smoothness
+- **D1** Cold-start "waking up" state + keep-warm ping
+- **D2** Dialogs and toasts instead of `confirm()` / `alert()`, Undo toast after delete
+- **D3** Loading skeletons and empty states · **D4** Session-expiry warning, return to the same page
+
+### Phase 5: everything else
+A9 concurrent-edit protection · A10 MongoDB schema validation · A11 least-privilege DB user
+· A12 type-to-confirm · B2 user-management page · B4 change-password page · B6 httpOnly
+cookie / 2FA · C1–C5 privacy (field projection, export audit, log redaction, `xlsx` upgrade,
+retention) · D5–D7 speed, stale-request cancelling, mobile · E CI and a staging database.

@@ -1,188 +1,88 @@
-# SPIT Internship Management & Analytics Portal
+# SPIT Internship Management & Evaluation Portal
 
-A centralized internship portal for SPIT coordinators and mentors to manage internship details, track progress, analyze company-wise hiring, generate groups, and pick students randomly.
+The portal the internship office at Sardar Patel Institute of Technology (SPIT), Mumbai uses
+to run each 8th-semester internship cycle:
 
-## Features
+1. **Import** the students' internship records from the placement spreadsheet.
+2. **Form evaluation groups** of about 5 students.
+3. **Allocate evaluators**: one internal examiner (SPIT faculty) and one external evaluator (industry) per group.
+4. **Mail** each evaluator their group's student list as an Excel attachment.
+5. **Collect marks** from six evaluation spreadsheets and show a weighted final score per student.
+6. **Analyse** placements by company, branch and internship type.
 
-- 📊 **Dashboard Analytics**: View summary cards and charts for internships, companies, and students
-- 📝 **Internship Management**: List, filter, and manage all internship records
-- 📤 **Excel Import/Export**: Upload Excel files to import data and export filtered results
-- 👥 **Group Generator**: Create student groups with customizable filters
-- 🎲 **Random Student Picker**: Randomly select students based on filters
-- 📈 **Company Analytics**: Analyze hiring patterns, branch distribution, and stipend data
-- 🔍 **Advanced Filtering**: Filter by branch, company, status, mentor, year, and more
+Office staff are the only users. Students and mentors are data, not accounts.
 
-## Tech Stack
+## Tech stack
 
-### Backend
-- Node.js
-- Express
-- MongoDB
-- Mongoose
-- XLSX (Excel processing)
-- Multer (File uploads)
+| Layer | Choice |
+|---|---|
+| Frontend | React 19 (Create React App), React Router, Tailwind CSS, Recharts, axios: hosted on **Vercel** |
+| Backend | Node.js, Express 4, Mongoose 7, multer, nodemailer, SheetJS: hosted on **Render** |
+| Database | MongoDB Atlas: one database per academic year plus a shared one |
+| Auth | bcrypt + JWT, roles `admin` / `staff`, account checked on every request |
+| Tests | Jest + supertest + mongodb-memory-server |
 
-### Frontend
-- React.js
-- TailwindCSS
-- Recharts (Data visualization)
-- Axios (API calls)
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Why it is built this way:
+[docs/DECISIONS.md](docs/DECISIONS.md).
 
-## Installation
+## Data protection at a glance
 
-### Prerequisites
-- Node.js (v14 or higher)
-- MongoDB (running locally or connection string)
+- **Roles:** `admin` can do everything. `staff` cannot bulk-delete, change evaluation weights or
+  store mail credentials. Enforced by the server, not just hidden in the UI.
+- **Sessions:** disabling, demoting or logging out takes effect on the next request.
+- **Marks:** edited only through validated endpoints (range-checked). Every single-student change
+  is logged with its old and new value.
+- **Audit log:** destructive and sensitive actions are recorded in `spit-common.auditlogs`.
+- **Backups:** nightly encrypted backup via GitHub Actions, with a tested restore. See
+  [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
-### Setup
+## Running locally
 
-1. Clone the repository:
+Prerequisites: Node.js 18+ and a MongoDB connection string (an Atlas cluster or local MongoDB).
+
 ```bash
-git clone <repository-url>
-cd Internship_portal
+npm run install-all                    # backend (root) + frontend dependencies
+cp backend/.env.example .env           # then fill in the values (see below)
+SEED_PASSWORD="<12+ characters>" npm run seed-user   # first admin account
+npm run dev                            # backend :5000 and frontend :3000
 ```
 
-2. Install backend dependencies:
+Key environment variables (`.env` in the repo root):
+
+| Variable | Purpose |
+|---|---|
+| `MONGODB_URI` | Atlas connection string |
+| `JWT_SECRET` | Signs login tokens. Long and random. |
+| `MAIL_CREDENTIALS_SECRET` | Encrypts stored sender-mail passwords |
+| `ACADEMIC_YEARS` | Years offered at login, e.g. `2025,2026` |
+| `FRONTEND_URL` | Allowed CORS origin |
+| `SMTP_*`, `MAIL_FROM` | Fallback mail settings |
+
+The frontend reads `REACT_APP_API_URL` (see `frontend/.env.example`).
+
+## Testing
+
 ```bash
-npm install
+npm test                         # backend: unit + integration tests (in-memory MongoDB)
+cd frontend && npm run build     # frontend must compile
 ```
 
-3. Install frontend dependencies:
-```bash
-cd frontend
-npm install
-cd ..
-```
+The first test run downloads a MongoDB binary for `mongodb-memory-server`.
 
-4. Create a `.env` file in the root directory:
-```bash
-cp .env.example .env
-```
+## Operations
 
-Edit `.env` and add your MongoDB connection string:
-```
-PORT=5000
-MONGODB_URI=mongodb://localhost:27017/spit-internships
-NODE_ENV=development
-```
+Backups, restores, creating and disabling accounts, and what to do if an account is
+compromised: [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
-5. Start MongoDB (if running locally):
-```bash
-mongod
-```
+> **Never commit student data.** Spreadsheets (`*.csv`, `*.xlsx`) and `backups/` are git-ignored on purpose.
 
-6. Run the application:
-```bash
-# Run both backend and frontend concurrently
-npm run dev
+## Project docs
 
-# Or run separately:
-# Terminal 1 - Backend
-npm run server
-
-# Terminal 2 - Frontend
-npm run client
-```
-
-7. Access the application:
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:5000
-
-## API Endpoints
-
-### Internships
-- `GET /api/internships` - Get all internships with filters
-- `GET /api/internships/:id` - Get single internship
-- `POST /api/internships` - Create new internship
-- `PUT /api/internships/:id` - Update internship
-- `DELETE /api/internships/:id` - Delete internship
-- `GET /api/internships/stats/summary` - Get summary statistics
-
-### Upload
-- `POST /api/upload/excel` - Parse Excel file
-- `POST /api/upload/import` - Import parsed data to MongoDB
-- `GET /api/upload/template` - Download Excel template
-
-### Analytics
-- `GET /api/analytics/companies` - Company-wise statistics
-- `GET /api/analytics/branches` - Branch distribution
-- `GET /api/analytics/status` - Status distribution
-- `GET /api/analytics/companies/branches` - Branch distribution per company
-- `GET /api/analytics/stipends` - Stipend comparison
-- `GET /api/analytics/types` - Internship type distribution
-- `GET /api/analytics/summary` - Comprehensive summary
-
-### Groups
-- `POST /api/groups/generate` - Generate student groups
-- `POST /api/groups/export` - Export groups to Excel
-- `POST /api/groups/random-pick` - Pick random students
-- `POST /api/groups/export-random` - Export random students to Excel
-
-## Data Model
-
-The system uses the following data structure for internships:
-
-```javascript
-{
-  student: {
-    name: String,
-    email: String,
-    phone: String,
-    rollNo: String,
-    branch: String (comps|extc|cse|mca|aiml),
-    year: String,
-    avatar: String (optional)
-  },
-  company: {
-    name: String,
-    location: String,
-    website: String
-  },
-  internship: {
-    title: String,
-    type: String,
-    duration: String,
-    startDate: Date,
-    endDate: Date,
-    stipend: String,
-    status: String (pending|approved|in-progress|completed|cancelled)
-  },
-  mentor: {
-    name: String,
-    email: String,
-    designation: String
-  },
-  evaluation: {
-    rating: Number (0-5),
-    feedback: String,
-    skills: [String]
-  },
-  submittedAt: Date
-}
-```
-
-## Excel Template
-
-Download the Excel template from the Upload page to see the required format for importing data. The template includes all necessary columns with sample data.
-
-## Contributing
-
-This is an internal project for SPIT. For any issues or suggestions, please contact the development team.
-
-## License
-
-ISC
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+| File | What it answers |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it fits together, the data model, known issues |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Why each major choice was made |
+| [docs/PLAN.md](docs/PLAN.md) | The security and smoothness roadmap and its status |
+| [docs/PROGRESS.md](docs/PROGRESS.md) | Dated log of what was built and tested |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | Operating procedures |
+| [docs/INTERVIEW_PREP.md](docs/INTERVIEW_PREP.md) | Likely interview questions with answers |
