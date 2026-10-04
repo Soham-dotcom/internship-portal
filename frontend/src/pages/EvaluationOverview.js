@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { getEvaluationOverview, getEvaluationSettings, updateEvaluationSettings, updateInternship, updateMarks } from '../api/axios';
 import { isAdmin } from '../auth/session';
+import StudentHistory from '../components/StudentHistory';
 
 const EvaluationOverview = () => {
   const [rows, setRows] = useState([]);
@@ -30,6 +31,7 @@ const EvaluationOverview = () => {
   const [settingsError, setSettingsError] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
   const admin = isAdmin();
+  const [historyFor, setHistoryFor] = useState(null); // student id whose history is open
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -241,7 +243,7 @@ const EvaluationOverview = () => {
 
       // Show what the server stored, never what we hoped it stored.
       setRows((prev) => prev.map((item) => (item._id === row._id ? { ...item, ...saved } : item)));
-      setMessage({ type: 'success', text: `Saved marks for ${row.uid}.` });
+      setMessage({ type: 'success', text: `Saved changes for ${row.uid}.` });
       cancelEdit();
     } catch (error) {
       setMessage({ type: 'error', text: error.response?.data?.message || error.message });
@@ -594,7 +596,10 @@ const EvaluationOverview = () => {
                         <button className="btn-secondary" onClick={cancelEdit}>Cancel</button>
                       </div>
                     ) : (
-                      <button className="btn-secondary" onClick={() => startEdit(row)}>Edit</button>
+                      <div className="flex gap-2">
+                        <button className="btn-secondary" onClick={() => startEdit(row)}>Edit</button>
+                        <button className="btn-secondary" onClick={() => setHistoryFor(row._id)}>History</button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -610,6 +615,7 @@ const EvaluationOverview = () => {
           </table>
         </div>
       </div>
+      {historyFor && <StudentHistory studentId={historyFor} onClose={() => setHistoryFor(null)} />}
     </div>
   );
 };

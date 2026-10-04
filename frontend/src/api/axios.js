@@ -37,6 +37,19 @@ axiosInstance.interceptors.response.use(
     if (!error?.response) {
       error.message = 'Network error. Please check your connection or try again.';
     }
+    // Locked year or locked marks: an admin may proceed by giving a reason, which the
+    // server records in the audit log. Ask once, then retry the very same request.
+    if (error?.response?.status === 423 && error.response.data?.requiresReason && !error.config?.lockRetried) {
+      const reason = window.prompt(`${error.response.data.message}\n\nReason for this change:`);
+      if (reason && reason.trim().length >= 5) {
+        const retry = { ...error.config, lockRetried: true };
+        retry.headers['X-Lock-Override-Reason'] = encodeURIComponent(reason.trim());
+        return axiosInstance(retry);
+      }
+      error.response.data.message = reason === null
+        ? 'Cancelled. Nothing was changed.'
+        : 'A reason of at least 5 characters is required. Nothing was changed.';
+    }
     if (error?.response?.status === 401) {
       clearAuthSession();
       if (window.location.pathname !== '/login') {
@@ -84,6 +97,17 @@ export const updateInternship = (id, data) => {
 };
 
 export const updateMarks = (id, marks) => axiosInstance.put(`/internships/${id}/marks`, marks);
+
+// Audit trail
+export const getAuditLogs = (params) => axiosInstance.get('/audit-logs', { params });
+export const getAuditActions = () => axiosInstance.get('/audit-logs/actions');
+export const getStudentHistory = (id) => axiosInstance.get(`/internships/${id}/history`);
+
+// Year and marks locks (changes are admin only on the server)
+export const getYearSettings = () => axiosInstance.get('/year-settings');
+export const lockYear = (reason) => axiosInstance.post('/year-settings/lock', { reason });
+export const unlockYear = (reason) => axiosInstance.post('/year-settings/unlock', { reason });
+export const setMarksLock = (field, locked, reason) => axiosInstance.put('/year-settings/marks-locks', { field, locked, reason });
 
 // Recycle Bin (admin only on the server)
 export const getRecycleBin = () => axiosInstance.get('/internships/recycle-bin');

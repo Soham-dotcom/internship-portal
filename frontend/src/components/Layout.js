@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { clearAuthSession, getAuthUser, getAuthYear, getAuthRole } from '../auth/session';
-import { logout } from '../api/axios';
+import { getYearSettings, logout } from '../api/axios';
 
 const SIDEBAR_WIDTH = 'w-60';
 
@@ -55,6 +55,8 @@ const navigation = [
       { name: 'Evaluation Marks Import', href: '/evaluation-upload' },
       // Shown to admins only; the server enforces it regardless.
       { name: 'Recycle Bin', href: '/recycle-bin', adminOnly: true },
+      { name: 'Locks & Finalisation', href: '/locks', adminOnly: true },
+      { name: 'Audit Log', href: '/audit-log', adminOnly: true },
     ],
   },
 ];
@@ -69,6 +71,17 @@ const Layout = ({ children }) => {
   const year = getAuthYear();
   const user = getAuthUser();
   const role = getAuthRole();
+
+  // Lock status drives the read-only banner. Re-checked on navigation so it updates
+  // right after an admin locks or unlocks the year.
+  const [yearLock, setYearLock] = useState(null);
+  useEffect(() => {
+    let active = true;
+    getYearSettings()
+      .then((response) => { if (active) setYearLock(response.data.data); })
+      .catch(() => { if (active) setYearLock(null); }); // banner is informational only
+    return () => { active = false; };
+  }, [location.pathname]);
 
   const isActive = (href) =>
     href === '/' ? location.pathname === '/' : location.pathname.startsWith(href);
@@ -204,6 +217,13 @@ const Layout = ({ children }) => {
 
         {/* Page content */}
         <main className="flex-1 p-6 overflow-auto">
+          {yearLock?.locked && (
+            <div className="alert-warning mb-4" role="status">
+              <strong>Academic year {year} is locked</strong> (since {new Date(yearLock.lockedAt).toLocaleDateString()},
+              by {yearLock.lockedBy}). It is read-only
+              {role === 'admin' ? '; you can still make corrections, but you will be asked for a reason.' : '.'}
+            </div>
+          )}
           {children}
         </main>
       </div>
