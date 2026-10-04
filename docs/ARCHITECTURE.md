@@ -78,6 +78,7 @@ data lives in `spit-common`.
 | `groups` | year | `name` ("Group 7"), `students[]` (ObjectIds), `externalMentor`, `internalMentor`, `mailSent` | Low |
 | `mentors` / `internalmentors` | year | name, email, phone, `isAssigned` flag | Yes (contact PII) |
 | `maildrafts` | year | one `global` subject/body template + evaluation link | No |
+| `importbatches` | year | one per applied student import: inserted ids + every changed field (old/new) — powers "Undo last import" | Contains changed values |
 | `evaluationsettings` | year | `totalWeeks` + six weights | Integrity-critical (drives every final mark) |
 | `users` | common | username, bcrypt hash, `role` (admin/staff), `allowedYears`, lockout counters | Credentials |
 | `senderemails` | common | sender address + **AES-256-GCM encrypted** SMTP app password | Secret |
@@ -103,14 +104,24 @@ logging in again. On **every** request `authRequired` re-reads the user: a missi
 account, or a `tv` that no longer matches `tokenVersion`, gets 401. Role and years come from the
 database, not the token. `POST /api/auth/logout` increments `tokenVersion`.
 
-**Student import (two-step).** The browser parses the sheet with SheetJS and maps the headers.
-`POST /api/upload/import` then upserts row by row on `uid`. Only whitelisted fields
-(`utils/allowedFields.js`) are written, so a spreadsheet cannot set marks or group assignment.
+**Student import (preview → apply → undo).** The browser parses the sheet and sends only cells
+that have values. `POST /api/upload/import` with `dryRun: true` returns a plan (new / changed with
+field-level diffs / unchanged / in Recycle Bin / errors) without writing. Applying recomputes the
+plan and writes inserts, updates and an `ImportBatch` record in one transaction. Add-only by
+default; blank cells never erase data; marks and group fields are never importable here
+(`utils/allowedFields.js`). Undo (latest import only) bins the added students and reverts changed
+fields that nobody has edited since.
+
+**Soft delete.** Deleting a student sets `deletedAt`/`deletedBy`. A query middleware in
+`models/Internship.js` hides such students from every find/count/distinct/update/aggregate
+unless a caller opts in with `withDeleted`. Admin-only Recycle Bin: list, restore, permanent
+delete (only from the bin).
 
 **Group generation.** `POST /api/groups/generate` → selects unassigned students (optional
 branch/company filter) → Fisher–Yates shuffle → splits into N groups (exact size, or auto-balanced).
-When `assignToGroups` is set, it `bulkWrite`s the internships and then `insertMany`s the groups.
-These two writes are **not transactional**.
+When `assignToGroups` is set, the read, the internship updates and the group inserts all run in
+**one transaction** (`withTransaction`), and each student is re-checked as still unassigned at
+write time. Unassign and clear-all are transactional too.
 
 **Mentor allocation.** Random allocation in bulk or per group from mentors with `isAssigned=false`,
 or a manual pick through `PUT /groups/:groupId/assign-mentor`, which rejects a mentor already
@@ -154,12 +165,12 @@ Severity: 🔴 act now · 🟠 fix soon · 🟡 when convenient.
 | 4 | ✅ | *Fixed 2026-10-05.* The Evaluation page **auto-saved weights on mount** with default values (400 ms debounce). If the settings GET is slow (Render cold start) or fails, defaults overwrite the real weights. Every admin page visit writes an audit row. Staff edits fail silently with a 403. | `EvaluationOverview.js:72-79` |
 | 5 | 🟠 | Marks fields default to `0`, so "not uploaded yet" and "scored zero" look the same. The UI shows a real 0 as "-". The viva maximum (40) and external maximum (100) are hard-coded in the browser, and imports have no range check. | `Internship.js`, `EvaluationOverview.js:105-110`, `upload.js` |
 | 6 | 🟠 | Final scores are computed only in the browser, so no server API or export can return an authoritative final mark. | `EvaluationOverview.js:118` |
-| 7 | 🟠 | Group generation writes internships, then groups, without a transaction. A failure in between (e.g. duplicate group name in a concurrent run) leaves students flagged as assigned with no group. | `groups.js:197-235` |
+| 7 | ✅ | *Fixed 2026-10-05 (transaction).* Group generation writes internships, then groups, without a transaction. A failure in between (e.g. duplicate group name in a concurrent run) leaves students flagged as assigned with no group. | `groups.js:197-235` |
 | 8 | 🟠 | `PUT /groups/:id` can overwrite `students[]` and `name` without updating `Internship.assignedGroup*`. Renaming a group breaks the evaluation-overview join. | `groups.js:1359` |
 | 9 | 🟠 | Bulk mentor allocation **reuses mentors** when there are fewer mentors than groups. The manual assign route forbids exactly that (409). | `groups.js:729,859` |
-| 10 | 🟠 | Marks *imports*, single mentor deletes and `POST /send-mail/:groupId` are **not audited** (single-student mark edits now are), although marks are the most integrity-sensitive data. | `upload.js`, `send-mail.js` |
+| 10 | 🟠 | Single mentor deletes and `POST /send-mail/:groupId` are **not audited**. (Marks imports and single-student mark edits now are, with old → new values.) | `upload.js`, `send-mail.js` |
 | 11 | 🟡 | `/analytics/stipends` uses `$toDouble`, which throws on values like `-` (17 rows in real data). The endpoint is unused by the UI. | `analytics.js:171` |
-| 12 | 🟡 | Import counts "inserted" vs "updated" by comparing `createdAt`/`updatedAt` within 1 s, which is a heuristic and can be wrong. | `upload.js:695` |
+| 12 | ✅ | *Fixed 2026-10-05: the import plan classifies rows explicitly.* Import counts "inserted" vs "updated" by comparing `createdAt`/`updatedAt` within 1 s, which is a heuristic and can be wrong. | `upload.js:695` |
 | 13 | 🟡 | Two mentor APIs (`/api/mentors` and `/api/upload/mentors*`) do the same work. N+1 queries in `buildMentorDetails`. | `mentors.js`, `upload.js` |
 | 14 | 🟡 | Logs still print emails and request bodies with emoji (mail, import, export). | `send-mail.js`, `mail-draft.js`, `groups.js` |
 | 15 | 🟡 | Two `package.json`s (root and `backend/`) with drifting versions (`nodemailer` ^7 vs ^6). The root one is what runs. | root, `backend/` |

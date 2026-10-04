@@ -72,6 +72,37 @@ a slow cold start, it could save the *default* weights before the real ones arri
 every student's final mark. I replaced it with an explicit admin-only Save, and made the
 server reject weights that don't sum to 100%.
 
+**Q: How does soft delete work, and why in the model instead of the routes?**
+Deleting sets `deletedAt` and `deletedBy`. A Mongoose query middleware on the Internship model adds
+`deletedAt: null` to every find, count, update and aggregate, unless a caller explicitly opts in.
+If each route had its own filter, the first route someone forgets would put deleted students
+back into a report. Doing it once in the model makes forgetting impossible. My tests check
+lists, counts, aggregates, group member lists and edits.
+
+**Q: Why transactions? MongoDB is "schemaless", doesn't that skip all this?**
+Generating groups writes to two collections. Without a transaction, a crash between the writes
+left students marked as assigned to groups that didn't exist. With `withTransaction`, it's all
+or nothing. I test it by forcing the second write to fail and checking the first one was rolled
+back. The cost: transactions need a replica set, which Atlas always is.
+
+**Q: How do you make a bulk import safe?**
+Three things. A **preview**: the server computes exactly what would happen (new, changed field by
+field, unchanged, invalid) and shows it before anything is written. **Safe defaults**: add-only
+unless you opt in, blank cells never overwrite data, rows with errors block the import unless
+explicitly skipped. And **undo**: each import stores what it inserted and every value it changed,
+so undo can revert exactly that. It won't overwrite edits made after the import; it reports
+them as conflicts instead.
+
+**Q: Why record each import instead of snapshotting the collection before it?**
+Restoring a snapshot would also wipe every unrelated change made after the import. The import
+record lets undo touch only what that import did.
+
+**Q: What bug are you proudest of catching?**
+While building the import preview, I found the page's parser sent missing cells as empty strings,
+and missing dates as *today's date*. Our real sheet has no date columns, so every re-import
+silently reset every student's internship dates. The preview made it visible: every row showed
+up as "changed". The fix: only send cells that actually have values.
+
 ## Failure cases and scaling
 
 **Q: What happens if the database goes down?**

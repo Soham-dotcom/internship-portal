@@ -2,6 +2,49 @@
 
 Newest first. What was built, how it was tested, what broke and how it was fixed.
 
+## 2026-10-05: Phase 2: making mistakes recoverable
+
+**Built**
+- **A7 Marks-import validation:** one shared, tested handler for the five single-field marks
+  imports. Any invalid mark rejects the file and writes nothing. Decimals are kept. Changes are
+  audited as `{uid, from, to}`. One `bulkWrite` instead of a round trip per row.
+- **A8 Transactions:** generate / unassign / clear-all are all-or-nothing (`withTransaction`).
+- **A3 Soft delete + Recycle Bin:** students are hidden, not erased. Admin-only bin with
+  restore and permanent delete (UID must be typed to confirm). New page `/recycle-bin`.
+- **A6 Import preview:** every import shows new / changed (field by field) / unchanged /
+  binned / error rows before anything is written. Add-only by default.
+- **A2 Undo last import:** added students go to the Recycle Bin; changed fields revert unless
+  someone edited them since.
+
+**Tested**
+- `npm test`: 143 tests, all passing (14 suites). New: marks-import planner + route with real
+  `.xlsx` uploads, group transactions with forced mid-operation failures, soft delete across
+  every read path, import planner + preview/apply/undo route.
+- **In the real app** (built frontend + real backend on a throwaway local replica set, test
+  accounts): a sheet with one changed, one unchanged, one new, one invalid-branch and one
+  missing-UID row previewed exactly right. Import stayed disabled until the error rows were
+  explicitly skipped. "Also update" changed the company but kept a stored remark despite a blank
+  cell. Undo reverted the change and moved the new student to the bin. Staff could not see or
+  call the bin (403). The admin restored the student from the bin.
+- Frontend `CI=true` build compiles cleanly.
+
+**Bugs found and fixed**
+- *Zero treated as blank:* `String(value || '')` turned a numeric `0` ("did not attend") into
+  `''`. Caught by a planner test; fixed with `??`.
+- *Marks truncated:* the old imports used `parseInt`, so a viva mark of 32.5 became 32.
+- *Import overwrote data with blanks and "today":* the page's parser sent missing columns as `''`
+  and missing dates as `new Date()`. The real sheet has no date columns, so **every import so far
+  set start/end dates to the import time**. The stored dates are not meaningful.
+- *Invented UIDs:* rows without a UID were imported as `AUTO-1`, `AUTO-2`… (colliding across
+  sheets), and the "Sr No" column was accepted as a UID.
+- *Stale analytics after an update import:* the derived `standardized_company_name` was hidden
+  from the diff and therefore not written. Caught by an integration test.
+- *Clear-all query bug:* `{ $ne: null, $ne: '' }` in one object keeps only the last `$ne`. Replaced with `$nin`.
+
+**Noticed, not yet acted on**
+- Production start/end dates are import timestamps, not real internship dates (see above).
+- Local development now needs a replica set (Atlas, or `mongod --replSet`), because of transactions.
+
 ## 2026-10-05: Phase 1 of the data-protection plan
 
 **Built**

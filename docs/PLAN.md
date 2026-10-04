@@ -29,12 +29,14 @@ mistake · keep it **Smooth** so people don't make mistakes in the first place.
 | B3 | Disable / demote / logout take effect immediately | ✅ |
 | — | Fix: inline mark edits were silently discarded | ✅ new audited `PUT /internships/:id/marks` |
 
-### Phase 2: make mistakes recoverable
-- **A3** Soft delete for students, groups, mentors + admin Recycle Bin with restore (D3)
-- **A6** Import preview (dry run): new / changed (before → after) / errors, with "add new only" as the default
-- **A7** Range-check marks in all six marks imports (reuse `utils/marks.js`)
-- **A8** Transactions for multi-step writes (generate groups, unassign, delete cascade, clear all)
-- **A2** Snapshot before bulk actions → "Undo last import"
+### Phase 2: make mistakes recoverable ✅ (2026-10-05)
+| ID | Item | Status |
+|---|---|---|
+| A3 | Soft delete + admin Recycle Bin with restore (D3) | ✅ students. Groups/mentors deliberately not (regenerable; see DECISIONS) |
+| A6 | Import preview: new / changed (before → after) / errors; add-only default | ✅ |
+| A7 | Range-check marks in the marks imports | ✅ the five single-field imports; weekly reports are text, not marks |
+| A8 | Transactions for multi-step writes | ✅ generate, unassign, clear-all, permanent delete |
+| A2 | Undo last import | ✅ per-import record, not a whole-collection snapshot (see DECISIONS) |
 
 ### Phase 3: lock and trace
 - **A4** Year lock (D2) · **A5** Marks lock (D4)

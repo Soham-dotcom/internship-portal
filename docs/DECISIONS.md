@@ -5,6 +5,85 @@ Newest first.
 
 ---
 
+## 2026-10-05: Import preview, add-only by default, and undo
+
+**What.** `POST /upload/import` first builds a plan for every row: new / changed (field-level
+before → after) / unchanged / in the Recycle Bin / error. `dryRun: true` returns the plan
+without writing, and the page always shows it before the Import button is enabled. Applying
+recomputes the same plan and writes it in one transaction, together with an `ImportBatch`
+document listing the inserted ids and every changed field's old and new value. "Undo last
+import" moves the added students to the Recycle Bin and reverts changed fields.
+
+**Rules.**
+- **Add-only by default:** existing students are never modified unless the user picks "also update".
+- **Blank never erases:** a missing column or empty cell is not sent, so it can't overwrite data.
+- **Errors block the import** unless the user ticks "skip these rows".
+- **Undo is careful:** only the most recent import, only once, and a field is reverted only if it
+  still holds the imported value. A later edit is kept and reported as a conflict.
+
+**Why.** Imports were the riskiest operation in the portal: one click silently overwrote existing
+students, with no way to see what would change and no way back. Building the preview also
+exposed three real bugs in the page's parser: blanks and missing date columns were sent as `''`
+and *today's date* (every import reset start/end dates); rows without a UID got invented IDs
+(`AUTO-1`) that collide across sheets; and Excel dates arrived as serial numbers.
+
+**Alternatives rejected.**
+- *Snapshot the whole collection before each import:* simple, but restoring it would also wipe
+  every unrelated edit made since. The batch records exactly what this import did, so undo
+  touches nothing else.
+- *Allow undoing any past import:* undoing an older import after a newer one has changed the
+  same students gets hard to reason about. Latest-only keeps undo predictable.
+
+**Trade-offs.** Undo only covers the student-records import; marks imports are protected by
+validation and the audit log, and by backups. Plans are capped at 200 rows in the preview
+response (counts are always complete).
+
+---
+
+## 2026-10-05: Soft delete for students, enforced in the model
+
+**What.** Deleting a student sets `deletedAt`/`deletedBy`. A Mongoose query middleware on the
+Internship model adds `deletedAt: null` to every find, count, distinct, update and aggregate,
+unless the caller explicitly opts in with `setOptions({ withDeleted: true })`. Only admins can
+see the Recycle Bin, restore, or permanently delete, and permanent delete only works on a
+student already in the bin.
+
+**Why.** A student record holds a semester of marks. A hard delete was one API call from gone
+forever. Putting the filter in the model rather than in each route means a route added next year
+can't forget it: lists, analytics, group member lists, the evaluation overview and edits all
+respect it automatically (an integration test checks each path).
+
+**Alternatives rejected.**
+- *A `deletedAt` filter in every route:* 40+ queries, and one forgotten filter shows deleted
+  students in a report.
+- *Moving deleted records to a separate "trash" collection:* restore becomes a copy-back that
+  can collide on the unique UID, and group references break.
+
+**Trade-offs.** `bulkWrite` and `estimatedDocumentCount` have no Mongoose hooks. The two
+`bulkWrite` callers select targets with a filtered query first. A deleted student's UID stays
+reserved (unique index), so re-adding them means restoring, which is the behaviour we want.
+Only students are soft-deleted. Groups can be regenerated, and mentors are re-importable
+directory data, both covered by backups. There is no student-delete button in the UI; the bin
+is fed by the API and by "undo import".
+
+---
+
+## 2026-10-05: Transactions for multi-step group writes
+
+**What.** `withTransaction(fn)` in `db/connection.js`. Generate groups, unassign and clear-all
+each run as one MongoDB transaction. Generate also re-checks at write time that every student is
+still unassigned, and aborts with 409 otherwise.
+
+**Why.** Each of these did 2–4 separate writes. A failure in between left students "assigned"
+to groups that didn't exist, or listed in a group after being unassigned. Two people generating
+at the same moment could also put one student in two groups.
+
+**Trade-offs.** Transactions need a replica set. Atlas (including free M0) always is one, but a
+plain local `mongod` is not, so local development must use Atlas or a single-node replica set.
+Tests use `MongoMemoryReplSet`, and include forced mid-operation failures that must roll back.
+
+---
+
 ## 2026-10-05: Marks imports are all-or-nothing on values
 
 **What.** The five single-field marks imports share one handler built on a pure, tested

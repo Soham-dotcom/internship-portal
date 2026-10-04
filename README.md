@@ -33,12 +33,19 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Why it is built this way:
 - **Marks:** edited only through validated endpoints (range-checked). Every single-student change
   is logged with its old and new value.
 - **Audit log:** destructive and sensitive actions are recorded in `spit-common.auditlogs`.
+- **Soft delete:** deleting a student only hides them. Admins can restore them from the Recycle Bin.
+- **Safe imports:** every import is previewed (what's new, what would change, what's invalid)
+  before anything is saved. Existing students are untouched unless you choose to update them,
+  blank cells never erase data, and the last import can be undone.
+- **All-or-nothing:** marks imports and multi-step group operations either fully apply or change nothing.
 - **Backups:** nightly encrypted backup via GitHub Actions, with a tested restore. See
   [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## Running locally
 
-Prerequisites: Node.js 18+ and a MongoDB connection string (an Atlas cluster or local MongoDB).
+Prerequisites: Node.js 18+ and a MongoDB connection string. It must be a **replica set**
+(any Atlas cluster, including the free tier, or a local `mongod --replSet rs0`), because group
+operations and imports use transactions.
 
 ```bash
 npm run install-all                    # backend (root) + frontend dependencies
