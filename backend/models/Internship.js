@@ -77,7 +77,11 @@ const internshipSchema = new mongoose.Schema({
   internal_viva_marks: { type: Number, default: 0 },
   weekly_report_data: { type: mongoose.Schema.Types.Mixed, default: {} },
 
-  submittedAt: { type: Date, default: Date.now }
+  submittedAt: { type: Date, default: Date.now },
+
+  // Soft delete. A "deleted" student is only hidden: set here, cleared on restore.
+  deletedAt: { type: Date, default: null },
+  deletedBy: { type: String, default: null },
 }, {
   timestamps: true
 });
@@ -85,6 +89,36 @@ const internshipSchema = new mongoose.Schema({
 // Create unique index on UID
 internshipSchema.index({ uid: 1 }, { unique: true });
 internshipSchema.index({ standardized_company_name: 1 });
+
+/**
+ * Soft delete, enforced in one place.
+ *
+ * Every read and update through this model skips students in the Recycle Bin,
+ * so no route can show, count, export or edit them by forgetting a filter.
+ * Code that genuinely needs them (the Recycle Bin itself) opts in with
+ * `.setOptions({ withDeleted: true })`.
+ *
+ * Deliberately NOT applied to delete operations: a hard delete is always explicit.
+ * Not applied to bulkWrite or estimatedDocumentCount either (Mongoose has no hook
+ * for them); callers of bulkWrite select their targets with a filtered find first.
+ */
+const NOT_DELETED = { deletedAt: null }; // also matches documents that predate the field
+
+function excludeDeleted() {
+  if (this.getOptions().withDeleted) return;
+  if (Object.prototype.hasOwnProperty.call(this.getFilter(), 'deletedAt')) return;
+  this.where(NOT_DELETED);
+}
+
+internshipSchema.pre(
+  ['find', 'findOne', 'countDocuments', 'distinct', 'findOneAndUpdate', 'updateOne', 'updateMany', 'replaceOne'],
+  excludeDeleted
+);
+
+internshipSchema.pre('aggregate', function excludeDeletedFromAggregate() {
+  if (this.options.withDeleted) return;
+  this.pipeline().unshift({ $match: NOT_DELETED });
+});
 
 const getInternshipModel = (conn) => conn.models.Internship || conn.model('Internship', internshipSchema);
 

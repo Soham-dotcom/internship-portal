@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { getYearDb } = require('../db/connection');
+const { getYearDb, withTransaction } = require('../db/connection');
 const { getInternshipModel } = require('../models/Internship');
 const { getGroupModel } = require('../models/Group');
 const { containsRegex, exactRegex } = require('../utils/escapeRegex');
 const { audit } = require('../middleware/audit');
+const { requireRole } = require('../middleware/auth');
 const { pickAllowed, CREATE_FIELDS, UPDATE_FIELDS } = require('../utils/allowedFields');
 const { validateMarksUpdate, MARK_FIELDS } = require('../utils/marks');
 const mongoose = require('mongoose');
@@ -139,6 +140,12 @@ router.post('/', async (req, res) => {
     await internship.save();
     res.status(201).json({ success: true, data: internship });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: 'A student with this UID already exists. If they were deleted, an administrator can restore them from the Recycle Bin.',
+      });
+    }
     res.status(400).json({ success: false, message: error.message });
   }
 });
@@ -207,57 +214,145 @@ router.put('/:id/marks', audit('internships.marks-update', (req, res) => res.loc
   }
 });
 
-// DELETE internship with cascade safety
-router.delete('/:id', audit('internships.delete', (req) => ({ internshipId: req.params.id })), async (req, res) => {
+// DELETE a student: moves them to the Recycle Bin (soft delete).
+//
+// Nothing is erased. The record, marks and group link stay intact and are simply
+// hidden everywhere, so an admin can restore the student exactly as they were.
+router.delete('/:id', audit('internships.delete', (req, res) => res.locals.auditDetails || {
+  internshipId: req.params.id,
+}), async (req, res, next) => {
   try {
-    const Internship = getInternshipModel(getYearDb(req.year));
-    // Find the student first to get their details
-    const internship = await Internship.findById(req.params.id);
-
-    if (!internship) {
-      return res.status(404).json({ success: false, message: 'Internship not found' });
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid student id' });
     }
 
-    // Store student info for cascade operations
-    const studentId = internship._id;
-    const assignedGroupName = internship.assignedGroup;
+    const Internship = getInternshipModel(getYearDb(req.year));
+    const student = await Internship.findOneAndUpdate(
+      { _id: req.params.id },
+      { $set: { deletedAt: new Date(), deletedBy: req.user?.username || 'unknown' } },
+      { new: true }
+    ).select('uid name assignedGroupName');
 
-    // DELETE the student from database
-    await Internship.findByIdAndDelete(req.params.id);
+    if (!student) {
+      return res.status(404).json({ success: false, message: 'Student not found' });
+    }
 
-    // CASCADE: Remove student from Group documents if assigned
-    if (assignedGroupName) {
-      const Group = getGroupModel(getYearDb(req.year));
+    res.locals.auditDetails = { internshipId: req.params.id, uid: student.uid };
+    return res.json({
+      success: true,
+      message: `${student.name || student.uid} was moved to the Recycle Bin. An administrator can restore them.`,
+      deletedStudent: {
+        name: student.name,
+        uid: student.uid,
+        wasInGroup: Boolean(student.assignedGroupName),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
 
-      // Remove student from group's students array
-      await Group.updateMany(
-        { students: studentId },
-        { $pull: { students: studentId } }
-      );
+// GET the Recycle Bin (admin only)
+router.get('/recycle-bin', requireRole('admin'), async (req, res, next) => {
+  try {
+    const Internship = getInternshipModel(getYearDb(req.year));
+    const students = await Internship.find({ deletedAt: { $ne: null } })
+      .setOptions({ withDeleted: true })
+      .select('uid name branch companyName assignedGroupName deletedAt deletedBy')
+      .sort({ deletedAt: -1 })
+      .lean();
+    return res.json({ success: true, data: students, count: students.length });
+  } catch (error) {
+    return next(error);
+  }
+});
 
-      // Clean up empty groups
-      await Group.deleteMany({
-        $or: [
-          { students: { $exists: false } },
-          { students: { $size: 0 } },
-          { students: null }
-        ]
+// POST restore a student from the Recycle Bin (admin only)
+router.post('/:id/restore', requireRole('admin'), audit('internships.restore', (req, res) => res.locals.auditDetails || {
+  internshipId: req.params.id,
+}), async (req, res, next) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid student id' });
+    }
+
+    const db = getYearDb(req.year);
+    const Internship = getInternshipModel(db);
+    const Group = getGroupModel(db);
+
+    const student = await Internship.findOneAndUpdate(
+      { _id: req.params.id, deletedAt: { $ne: null } },
+      { $set: { deletedAt: null, deletedBy: null } },
+      { new: true }
+    ).setOptions({ withDeleted: true });
+
+    if (!student) {
+      return res.status(404).json({ success: false, message: 'Student is not in the Recycle Bin' });
+    }
+
+    // If their group was dissolved while they were in the bin, return them unassigned
+    // rather than pointing at a group that no longer exists.
+    let groupNote = '';
+    if (student.assignedGroupName) {
+      const stillInGroup = await Group.exists({ students: student._id });
+      if (!stillInGroup) {
+        await Internship.updateOne(
+          { _id: student._id },
+          { $set: { assignedGroup: null, assignedGroupName: null } }
+        );
+        groupNote = ` Their group "${student.assignedGroupName}" no longer exists, so they are now unassigned.`;
+      }
+    }
+
+    res.locals.auditDetails = { internshipId: req.params.id, uid: student.uid };
+    return res.json({ success: true, message: `${student.name || student.uid} was restored.${groupNote}` });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// DELETE permanently (admin only, and only from the Recycle Bin)
+//
+// The one irreversible action. It refuses students who are not already in the bin,
+// so nothing can be erased in a single step.
+router.delete('/:id/permanent', requireRole('admin'), audit('internships.delete-permanent', (req, res) => res.locals.auditDetails || {
+  internshipId: req.params.id,
+}), async (req, res, next) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid student id' });
+    }
+
+    const result = await withTransaction(async (session) => {
+      const db = getYearDb(req.year);
+      const Internship = getInternshipModel(db);
+      const Group = getGroupModel(db);
+
+      const student = await Internship.findOne({ _id: req.params.id, deletedAt: { $ne: null } })
+        .setOptions({ withDeleted: true })
+        .select('uid name')
+        .session(session);
+      if (!student) return null;
+
+      await Group.updateMany({ students: student._id }, { $pull: { students: student._id } }, { session });
+      await Internship.deleteOne({ _id: student._id }, { session });
+      return student;
+    });
+
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        message: 'Only students already in the Recycle Bin can be deleted permanently.',
       });
     }
 
-    res.json({
-      success: true,
-      message: 'Student removed successfully from all records',
-      deletedStudent: {
-        name: internship.name,
-        uid: internship.uid,
-        wasInGroup: !!assignedGroupName
-      }
-    });
+    res.locals.auditDetails = { internshipId: req.params.id, uid: result.uid };
+    return res.json({ success: true, message: `${result.name || result.uid} was permanently deleted.` });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return next(error);
   }
 });
+
 
 // GET summary statistics
 router.get('/stats/summary', async (req, res) => {
