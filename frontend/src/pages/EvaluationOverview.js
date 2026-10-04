@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { getEvaluationOverview, getEvaluationSettings, updateEvaluationSettings, updateInternship, updateMarks } from '../api/axios';
 import { isAdmin } from '../auth/session';
 import StudentHistory from '../components/StudentHistory';
+import { confirmDialog } from '../ui/feedback';
 
 const EvaluationOverview = () => {
   const [rows, setRows] = useState([]);
@@ -100,9 +101,12 @@ const EvaluationOverview = () => {
       setMessage({ type: 'error', text: `Weights must add up to 100% before saving (currently ${weightSum}%).` });
       return;
     }
-    if (!window.confirm('Save these weights? Every student\'s final score for this year will be recalculated with them.')) {
-      return;
-    }
+    const ok = await confirmDialog({
+      title: 'Save these weights?',
+      message: 'Every student\'s final score for this year will be calculated with them.',
+      confirmLabel: 'Save weights',
+    });
+    if (!ok) return;
     setSavingSettings(true);
     try {
       const response = await updateEvaluationSettings({ totalWeeks, weights });

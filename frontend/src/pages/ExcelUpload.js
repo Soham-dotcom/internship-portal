@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { normalizeCompanyName, similarityScore } from '../utils/companyNormalization';
+import { confirmDialog } from '../ui/feedback';
 import {
   previewImport,
   applyImport,
@@ -220,11 +221,13 @@ const ExcelUpload = () => {
   const handleUndoImport = async () => {
     if (!lastImport) return;
     const { inserted, updated } = lastImport.counts || {};
-    const ok = window.confirm(
-      `Undo the import from ${new Date(lastImport.createdAt).toLocaleString()} by ${lastImport.createdBy}?\n\n`
-      + `${inserted || 0} added student(s) will move to the Recycle Bin and ${updated || 0} updated student(s) will get their old details back. `
-      + 'Fields edited since the import are kept.'
-    );
+    const ok = await confirmDialog({
+      title: 'Undo the last import?',
+      message: `Import from ${new Date(lastImport.createdAt).toLocaleString()} by ${lastImport.createdBy}.\n\n`
+        + `${inserted || 0} added student(s) will move to the Recycle Bin and ${updated || 0} updated student(s) will get their old details back. `
+        + 'Fields edited since the import are kept.',
+      confirmLabel: 'Undo import',
+    });
     if (!ok) return;
     setUndoing(true);
     try {

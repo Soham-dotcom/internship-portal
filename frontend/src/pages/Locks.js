@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { getYearSettings, lockYear, unlockYear, setMarksLock } from '../api/axios';
 import { getAuthYear } from '../auth/session';
+import { confirmDialog, promptDialog } from '../ui/feedback';
 
 const MARK_COMPONENTS = [
   { field: 'meeting_attended', label: 'Meeting attendance' },
@@ -51,35 +52,42 @@ const Locks = () => {
     }
   };
 
-  const askReason = (question) => {
-    const reason = window.prompt(question);
-    if (reason === null) return null;
-    if (reason.trim().length < 5) {
-      setMessage({ type: 'error', text: 'A reason of at least 5 characters is required. Nothing was changed.' });
-      return null;
-    }
-    return reason.trim();
-  };
+  const askReason = (title, message, confirmLabel) => promptDialog({
+    title,
+    message,
+    label: 'Reason (recorded in the audit log)',
+    minLength: 5,
+    confirmLabel,
+  });
 
-  const handleLockYear = () => {
-    const reason = window.prompt(
-      `Lock academic year ${year}? Staff will no longer be able to change anything in this year. `
-      + 'Administrators can still make corrections, but must give a reason each time.\n\nReason (optional):'
-    );
+  const handleLockYear = async () => {
+    const reason = await promptDialog({
+      title: `Lock academic year ${year}?`,
+      message: 'Staff will no longer be able to change anything in this year. '
+        + 'Administrators can still make corrections, but must give a reason each time.',
+      label: 'Reason (optional)',
+      placeholder: 'e.g. Results published',
+      confirmLabel: 'Lock year',
+      danger: true,
+    });
     if (reason === null) return;
-    run(() => lockYear(reason.trim()));
+    run(() => lockYear(reason));
   };
 
-  const handleUnlockYear = () => {
-    const reason = askReason(`Unlock academic year ${year}? Everyone will be able to change its data again.\n\nReason (required):`);
+  const handleUnlockYear = async () => {
+    const reason = await askReason(`Unlock academic year ${year}?`, 'Everyone will be able to change its data again.', 'Unlock year');
     if (reason) run(() => unlockYear(reason));
   };
 
-  const handleToggleMarks = (component, isLocked) => {
+  const handleToggleMarks = async (component, isLocked) => {
     if (isLocked) {
-      const reason = askReason(`Unlock "${component.label}"? Staff will be able to change these marks again.\n\nReason (required):`);
+      const reason = await askReason(`Unlock "${component.label}"?`, 'Staff will be able to change these marks again.', 'Unlock');
       if (reason) run(() => setMarksLock(component.field, false, reason));
-    } else if (window.confirm(`Lock "${component.label}"? Staff will no longer be able to change these marks.`)) {
+    } else if (await confirmDialog({
+      title: `Lock "${component.label}"?`,
+      message: 'Staff will no longer be able to change these marks. Administrators can still correct them, with a reason.',
+      confirmLabel: 'Lock',
+    })) {
       run(() => setMarksLock(component.field, true));
     }
   };

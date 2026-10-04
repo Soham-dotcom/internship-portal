@@ -38,6 +38,41 @@ export const setAuthSession = ({ token, year, username, role, allowedYears }) =>
   localStorage.setItem(ALLOWED_YEARS_KEY, JSON.stringify(Array.isArray(allowedYears) ? allowedYears : []));
 };
 
+/**
+ * When the token expires, as a ms timestamp (null if unknown). Read client-side
+ * only to warn the user in time; the server still verifies every token.
+ */
+export const getTokenExpiry = (token) => {
+  try {
+    const payload = String(token).split('.')[1];
+    if (!payload) return null;
+    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof json.exp === 'number' ? json.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Where to go after signing in. Only same-app paths are allowed, so a crafted
+ * "?next=https://evil.example" link cannot bounce a user to another site.
+ */
+export const safeNextPath = (value) => {
+  const path = String(value || '');
+  if (!path.startsWith('/') || path.startsWith('//') || path.startsWith('/\\')) return '/';
+  if (path === '/login' || path.startsWith('/login?') || path.startsWith('/login/')) return '/';
+  return path;
+};
+
+/** The login URL for a given reason ("expired", "signed-out"), returning to `next` afterwards. */
+export const loginUrl = (reason, next) => {
+  const params = new URLSearchParams();
+  if (reason) params.set('reason', reason);
+  const target = safeNextPath(next);
+  if (target !== '/') params.set('next', target);
+  return `/login?${params.toString()}`;
+};
+
 export const clearAuthSession = () => {
   [TOKEN_KEY, YEAR_KEY, USER_KEY, ROLE_KEY, ALLOWED_YEARS_KEY]
     .forEach((key) => localStorage.removeItem(key));

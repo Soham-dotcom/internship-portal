@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getInternships, updateInternship, deleteInternship } from '../api/axios';
+import { getInternships, updateInternship, deleteInternship, restoreStudent } from '../api/axios';
+import { isAdmin } from '../auth/session';
+import { confirmDialog, toast } from '../ui/feedback';
 
 const MentorEdit = () => {
   const [internships, setInternships] = useState([]);
@@ -60,26 +62,48 @@ const MentorEdit = () => {
         setTimeout(() => { setSelectedInternship(null); setSuccessMessage(''); }, 2000);
       }
     } catch (error) {
-      console.error('Error updating internship:', error);
-      alert('Error updating internship');
+      toast.error(`Could not save the changes: ${error.response?.data?.message || error.message}`);
     }
   };
 
+  // Removing a student only moves them to the Recycle Bin: their record, marks and
+  // group stay intact, and an administrator can restore them.
   const handleRemoveStudent = async () => {
     if (!selectedInternship) return;
-    const confirmed = window.confirm(
-      `WARNING: Permanently remove student?\n\nName: ${selectedInternship.name}\nUID: ${selectedInternship.uid}\nCompany: ${selectedInternship.companyName}\n\nThis will delete the student and all associated data. This CANNOT be undone.`
-    );
+    const student = selectedInternship;
+    const confirmed = await confirmDialog({
+      title: 'Move this student to the Recycle Bin?',
+      message: `${student.name} (UID ${student.uid}, ${student.companyName || 'no company'})\n\n`
+        + 'They will disappear from every list, count and report. Nothing is erased: '
+        + 'an administrator can restore them, with their marks and group, from the Recycle Bin.',
+      confirmLabel: 'Move to Recycle Bin',
+      danger: true,
+    });
     if (!confirmed) return;
     try {
-      const res = await deleteInternship(selectedInternship._id);
+      const res = await deleteInternship(student._id);
       if (res.data.success) {
-        setSuccessMessage(`Student "${selectedInternship.name}" removed.`);
+        setSelectedInternship(null);
         fetchInternships();
-        setTimeout(() => { setSelectedInternship(null); setSuccessMessage(''); }, 2000);
+        // Admins can undo straight away; staff are told who can.
+        const undo = isAdmin()
+          ? {
+            label: 'Undo',
+            onClick: async () => {
+              try {
+                await restoreStudent(student._id);
+                toast.success(`${student.name} restored.`);
+                fetchInternships();
+              } catch (error) {
+                toast.error(`Could not restore: ${error.response?.data?.message || error.message}`);
+              }
+            },
+          }
+          : undefined;
+        toast.success(res.data.message, 10000, undo);
       }
     } catch (error) {
-      alert('Error removing student: ' + (error.response?.data?.message || error.message));
+      toast.error(`Could not remove the student: ${error.response?.data?.message || error.message}`);
     }
   };
 
@@ -360,7 +384,7 @@ const MentorEdit = () => {
                 <div className="flex flex-wrap gap-3 pt-2 border-t border-gray-100">
                   <button onClick={handleSave} className="btn-primary">Save Changes</button>
                   <button onClick={() => { setSelectedInternship(null); setSuccessMessage(''); }} className="btn-secondary">Cancel</button>
-                  <button onClick={handleRemoveStudent} className="btn-danger ml-auto">Remove Student Record</button>
+                  <button onClick={handleRemoveStudent} className="btn-danger ml-auto">Move to Recycle Bin</button>
                 </div>
               </div>
             </div>

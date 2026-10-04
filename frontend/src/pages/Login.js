@@ -1,7 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getAuthConfig, login } from '../api/axios';
-import { setAuthSession } from '../auth/session';
+import { safeNextPath, setAuthSession } from '../auth/session';
+
+// Why the user landed on the login page, from ?reason=...
+const REASON_MESSAGES = {
+  expired: 'Your session has ended. Sign in again to continue where you left off.',
+  'signed-out': 'You have been signed out.',
+};
 
 const Login = () => {
   const [years, setYears] = useState([]);
@@ -13,7 +19,12 @@ const Login = () => {
 
   const navigate = useNavigate();
   const location = useLocation();
-  const fromPath = location.state?.from?.pathname || '/';
+  const params = new URLSearchParams(location.search);
+  const notice = REASON_MESSAGES[params.get('reason')] || '';
+  // Return to the page (and its filters) the user was on: ?next= after a session
+  // ends, or router state when they opened a protected page while signed out.
+  const from = location.state?.from;
+  const fromPath = safeNextPath(params.get('next') || (from ? `${from.pathname}${from.search || ''}` : '/'));
 
   const loadAuthConfig = useCallback(() => {
     let active = true;
@@ -68,16 +79,23 @@ const Login = () => {
         <h1 className="text-xl font-semibold text-slate-800">SPIT Internship Portal</h1>
         <p className="text-sm text-slate-500 mt-1">Sign in to continue</p>
 
+        {notice && !error && (
+          <div className="mt-4 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800" role="status">
+            {notice}
+          </div>
+        )}
+
         {error && (
-          <div className="mt-4 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+          <div className="mt-4 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700" role="alert">
             {error}
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700">Username</label>
+            <label htmlFor="login-username" className="block text-sm font-medium text-slate-700">Username</label>
             <input
+              id="login-username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -88,8 +106,9 @@ const Login = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700">Password</label>
+            <label htmlFor="login-password" className="block text-sm font-medium text-slate-700">Password</label>
             <input
+              id="login-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -100,8 +119,9 @@ const Login = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700">Academic Year</label>
+            <label htmlFor="login-year" className="block text-sm font-medium text-slate-700">Academic Year</label>
             <select
+              id="login-year"
               value={year}
               onChange={(e) => setYear(e.target.value)}
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"

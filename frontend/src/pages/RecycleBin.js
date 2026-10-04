@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { getRecycleBin, restoreStudent, deleteStudentPermanently } from '../api/axios';
+import { promptDialog } from '../ui/feedback';
 
 const formatWhen = (value) => (value ? new Date(value).toLocaleString() : '-');
 
@@ -45,14 +46,16 @@ const RecycleBin = () => {
   };
 
   const handleDeleteForever = async (student) => {
-    const typed = window.prompt(
-      `This permanently erases ${student.name || student.uid} (UID ${student.uid}), including their marks. It cannot be undone.\n\nType the UID to confirm:`
-    );
+    // Type-to-confirm: the button stays disabled until the exact UID is typed.
+    const typed = await promptDialog({
+      title: `Permanently delete ${student.name || student.uid}?`,
+      message: 'This erases the student and their marks for good. It cannot be undone (only a backup could bring it back).',
+      label: `Type the UID ${student.uid} to confirm`,
+      mustEqual: student.uid,
+      confirmLabel: 'Delete forever',
+      danger: true,
+    });
     if (typed === null) return;
-    if (typed.trim() !== student.uid) {
-      setMessage({ type: 'error', text: 'The UID did not match. Nothing was deleted.' });
-      return;
-    }
 
     setBusyId(student._id);
     try {

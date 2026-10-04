@@ -15,6 +15,7 @@ import {
   sendGroupMail
 } from '../api/groups';
 import { axiosInstance } from '../api/axios';
+import { confirmDialog } from '../ui/feedback';
 import { getMailDraft, saveMailDraft, listSenderEmails, addSenderEmail } from '../api/mail';
 import { isAdmin } from '../auth/session';
 
@@ -152,7 +153,12 @@ const AllGroups = () => {
   };
 
   const handleUnassignGroup = async (group) => {
-    if (!window.confirm(`Unassign all ${group.studentCount} students from ${group.groupName}?`)) return;
+    if (!await confirmDialog({
+      title: `Unassign ${group.groupName}?`,
+      message: `All ${group.studentCount} students go back to the unassigned pool and the empty group is removed. Their marks are not affected.`,
+      confirmLabel: 'Unassign',
+      danger: true,
+    })) return;
     try {
       const uids = group.students.map(s => s.uid);
       const response = await unassignStudents(uids);
@@ -164,7 +170,12 @@ const AllGroups = () => {
 
   const handleUnassignAllGroups = async () => {
     const totalStudents = groups.reduce((sum, g) => sum + g.studentCount, 0);
-    if (!window.confirm(`WARNING: This will unassign ALL ${totalStudents} students from ALL ${groups.length} groups. Are you sure?`)) return;
+    if (!await confirmDialog({
+      title: 'Unassign every group?',
+      message: `All ${totalStudents} students in all ${groups.length} groups go back to the unassigned pool, and the groups are removed. Marks are not affected.`,
+      confirmLabel: 'Unassign all',
+      danger: true,
+    })) return;
     try {
       const allUids = [];
       groups.forEach(group => { group.students.forEach(student => { allUids.push(student.uid); }); });
@@ -181,7 +192,7 @@ const AllGroups = () => {
   const handleAllocateExternalMentorsToAll = async () => {
     const unassignedGroups = groups.filter(g => !g.externalMentor);
     if (unassignedGroups.length === 0) { setMessage({ type: 'warning', text: 'All groups already have external evaluators assigned.' }); return; }
-    if (!window.confirm(`Allocate external evaluators to ${unassignedGroups.length} groups?`)) return;
+    if (!await confirmDialog({ message: `Allocate external evaluators to ${unassignedGroups.length} groups?` })) return;
     try {
       const response = await allocateExternalMentorsToAll();
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchGroups(); }
@@ -193,7 +204,7 @@ const AllGroups = () => {
   const handleAllocateInternalMentorsToAll = async () => {
     const unassignedGroups = groups.filter(g => !g.internalMentor);
     if (unassignedGroups.length === 0) { setMessage({ type: 'warning', text: 'All groups already have internal examiners assigned.' }); return; }
-    if (!window.confirm(`Allocate internal examiners to ${unassignedGroups.length} groups?`)) return;
+    if (!await confirmDialog({ message: `Allocate internal examiners to ${unassignedGroups.length} groups?` })) return;
     try {
       const response = await allocateInternalMentorsToAll();
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchGroups(); }
@@ -203,7 +214,7 @@ const AllGroups = () => {
   };
 
   const handleAllocateExternalMentorToGroup = async (groupId, groupName) => {
-    if (!window.confirm(`Allocate a random external evaluator to ${groupName}?`)) return;
+    if (!await confirmDialog({ message: `Allocate a random external evaluator to ${groupName}?` })) return;
     try {
       const response = await allocateExternalMentorToGroup(groupId);
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchGroups(); }
@@ -213,7 +224,7 @@ const AllGroups = () => {
   };
 
   const handleAllocateInternalMentorToGroup = async (groupId, groupName) => {
-    if (!window.confirm(`Allocate a random internal examiner to ${groupName}?`)) return;
+    if (!await confirmDialog({ message: `Allocate a random internal examiner to ${groupName}?` })) return;
     try {
       const response = await allocateInternalMentorToGroup(groupId);
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchGroups(); }
@@ -223,7 +234,7 @@ const AllGroups = () => {
   };
 
   const handleSyncMentors = async () => {
-    if (!window.confirm('Sync Evaluator Assignments? This will fix any evaluators incorrectly marked as assigned/unassigned.')) return;
+    if (!await confirmDialog({ message: 'Sync Evaluator Assignments? This will fix any evaluators incorrectly marked as assigned/unassigned.' })) return;
     try {
       setLoading(true);
       const response = await syncMentors();
@@ -320,7 +331,7 @@ const AllGroups = () => {
 
     if (assigningMentorByGroupId[groupId]) return;
 
-    const ok = window.confirm('Are you sure you want to assign/change evaluator?');
+    const ok = await confirmDialog({ message: 'Are you sure you want to assign/change evaluator?' });
     if (!ok) return;
 
     setAssigningMentorByGroupId(prev => ({ ...prev, [groupId]: true }));
@@ -533,7 +544,11 @@ const AllGroups = () => {
       }
     }
 
-    const ok = window.confirm('Are you sure you want to send mail to this evaluator?');
+    const ok = await confirmDialog({
+      title: 'Send email?',
+      message: 'The evaluator receives the group\'s student list as an Excel attachment. This cannot be recalled.',
+      confirmLabel: 'Send',
+    });
     if (!ok) return;
 
     setSendingMailByGroupId(prev => ({ ...prev, [groupId]: true }));
@@ -631,7 +646,7 @@ const AllGroups = () => {
       return;
     }
 
-    const ok = window.confirm('Are you sure you want to save changes to the global mail draft?');
+    const ok = await confirmDialog({ message: 'Are you sure you want to save changes to the global mail draft?' });
     if (!ok) return;
 
     setDraftSaving(true);

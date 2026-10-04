@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { axiosInstance, listMentorDirectory, createMentor, updateMentor } from '../api/axios';
+import { confirmDialog, promptDialog } from '../ui/feedback';
 import { isAdmin } from '../auth/session';
 
 const AllMentors = () => {
@@ -91,7 +92,7 @@ const AllMentors = () => {
 
 
   const handleDeleteExternalMentor = async (mentorId, mentorName) => {
-    if (!window.confirm(`Delete External Evaluator: ${mentorName}? This action cannot be undone.`)) return;
+    if (!await confirmDialog({ title: `Delete ${mentorName}?`, message: 'This external evaluator is removed from the directory. This cannot be undone.', confirmLabel: 'Delete', danger: true })) return;
     try {
       const response = await axiosInstance.delete(`/upload/mentors/${mentorId}`);
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchExternalMentors(); }
@@ -101,7 +102,7 @@ const AllMentors = () => {
   };
 
   const handleDeleteInternalMentor = async (mentorId, mentorName) => {
-    if (!window.confirm(`Delete Internal Examiner: ${mentorName}? This action cannot be undone.`)) return;
+    if (!await confirmDialog({ title: `Delete ${mentorName}?`, message: 'This internal examiner is removed from the directory. This cannot be undone.', confirmLabel: 'Delete', danger: true })) return;
     try {
       const response = await axiosInstance.delete(`/upload/internal-mentors/${mentorId}`);
       if (response.data.success) { setMessage({ type: 'success', text: response.data.message }); fetchInternalMentors(); }
@@ -111,8 +112,15 @@ const AllMentors = () => {
   };
 
   const handleDeleteAllExternalMentors = async () => {
-    if (!window.confirm(`WARNING: Delete ALL ${externalMentors.length} External Evaluators? This cannot be undone.`)) return;
-    if (!window.confirm(`Final confirmation: Delete ${externalMentors.length} external evaluators?`)) return;
+    const typedExternal = await promptDialog({
+      title: `Delete all ${externalMentors.length} external evaluators?`,
+      message: 'Every external evaluator is removed from the directory. This cannot be undone without restoring a backup.',
+      label: 'Type DELETE to confirm',
+      mustEqual: 'DELETE',
+      confirmLabel: 'Delete all',
+      danger: true,
+    });
+    if (typedExternal === null) return;
     try {
       setExternalLoading(true);
       const response = await axiosInstance.delete('/upload/mentors');
@@ -123,8 +131,15 @@ const AllMentors = () => {
   };
 
   const handleDeleteAllInternalMentors = async () => {
-    if (!window.confirm(`WARNING: Delete ALL ${internalMentors.length} Internal Examiners? This cannot be undone.`)) return;
-    if (!window.confirm(`Final confirmation: Delete ${internalMentors.length} internal examiners?`)) return;
+    const typedInternal = await promptDialog({
+      title: `Delete all ${internalMentors.length} internal examiners?`,
+      message: 'Every internal examiner is removed from the directory. This cannot be undone without restoring a backup.',
+      label: 'Type DELETE to confirm',
+      mustEqual: 'DELETE',
+      confirmLabel: 'Delete all',
+      danger: true,
+    });
+    if (typedInternal === null) return;
     try {
       setInternalLoading(true);
       const response = await axiosInstance.delete('/upload/internal-mentors');
@@ -177,7 +192,7 @@ const AllMentors = () => {
     const confirmText = mentorModalMode === 'add'
       ? 'Are you sure you want to add this evaluator?'
       : 'Are you sure you want to save changes to this evaluator?';
-    if (!window.confirm(confirmText)) return;
+    if (!await confirmDialog({ message: confirmText })) return;
 
     const type = activeTab === 'internal' ? 'internal' : 'external';
 

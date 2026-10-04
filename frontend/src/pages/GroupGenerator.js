@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { generateGroups, listGroups, unassignStudents } from '../api/groups';
+import { confirmDialog } from '../ui/feedback';
 
 const branches = ['COMPS', 'EXTC', 'CSE', 'MCA', 'AIML', 'IT', 'MECH', 'ETRX'];
 
@@ -70,7 +71,12 @@ const GroupGenerator = () => {
   const handleUnassignGroup = async (groupId) => {
     const group = existingGroups.find(g => g._id === groupId);
     if (!group) return;
-    if (!window.confirm(`Unassign all ${group.studentCount} students from ${group.groupName}?`)) return;
+    if (!await confirmDialog({
+      title: `Unassign ${group.groupName}?`,
+      message: `All ${group.studentCount} students go back to the unassigned pool and the empty group is removed. Their marks are not affected.`,
+      confirmLabel: 'Unassign',
+      danger: true,
+    })) return;
     try {
       const uids = group.students.map(s => s.uid);
       const response = await unassignStudents(uids);

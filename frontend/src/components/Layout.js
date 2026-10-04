@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { clearAuthSession, getAuthUser, getAuthYear, getAuthRole } from '../auth/session';
+import {
+  clearAuthSession, getAuthToken, getAuthUser, getAuthYear, getAuthRole, getTokenExpiry, loginUrl,
+} from '../auth/session';
+import { toast } from '../ui/feedback';
 import { getYearSettings, logout } from '../api/axios';
 
 const SIDEBAR_WIDTH = 'w-60';
@@ -74,6 +77,27 @@ const Layout = ({ children }) => {
 
   // Lock status drives the read-only banner. Re-checked on navigation so it updates
   // right after an admin locks or unlocks the year.
+  // Session expiry: warn 5 minutes ahead so nobody loses a half-filled form, then
+  // send the user to sign in again, returning them to this page afterwards.
+  useEffect(() => {
+    const expiry = getTokenExpiry(getAuthToken());
+    if (!expiry) return undefined;
+    const until = expiry - Date.now();
+    const timers = [];
+    const WARNING_MS = 5 * 60 * 1000;
+    if (until > WARNING_MS) {
+      timers.push(setTimeout(() => {
+        const at = new Date(expiry).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        toast.warning(`Your session ends at ${at}. Save your work now; you will need to sign in again.`, 0);
+      }, until - WARNING_MS));
+    }
+    timers.push(setTimeout(() => {
+      clearAuthSession();
+      window.location.href = loginUrl('expired', window.location.pathname + window.location.search);
+    }, Math.max(0, until)));
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
   const [yearLock, setYearLock] = useState(null);
   useEffect(() => {
     let active = true;
@@ -204,7 +228,7 @@ const Layout = ({ children }) => {
                       // Network or already-expired token: nothing more to revoke.
                     }
                     clearAuthSession();
-                    window.location.href = '/login';
+                    window.location.href = loginUrl('signed-out');
                   }}
                   className="px-2 py-0.5 rounded bg-red-50 text-red-600 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500"
                 >

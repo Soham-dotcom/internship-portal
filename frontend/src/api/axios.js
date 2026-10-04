@@ -1,5 +1,6 @@
 import axios from 'axios';
-import { clearAuthSession, getAuthToken } from '../auth/session';
+import { clearAuthSession, getAuthToken, loginUrl } from '../auth/session';
+import { dismissToast, promptDialog, toast } from '../ui/feedback';
 
 const normalizeApiBaseUrl = (value) => {
   const raw = String(value || '').trim().replace(/\/+$/, '');
@@ -9,7 +10,10 @@ const normalizeApiBaseUrl = (value) => {
 
 const DEFAULT_API_BASE = 'http://localhost:5000/api';
 const API_BASE_URL = normalizeApiBaseUrl(process.env.REACT_APP_API_URL) || DEFAULT_API_BASE;
-const API_TIMEOUT_MS = Number(process.env.REACT_APP_API_TIMEOUT_MS) || 20000;
+// The backend runs on Render's free tier, which sleeps when idle; the first request
+// after a sleep can take 30-60s. A shorter timeout made a cold start look like an outage.
+const API_TIMEOUT_MS = Number(process.env.REACT_APP_API_TIMEOUT_MS) || 60000;
+const SLOW_REQUEST_MS = 4000;
 
 if (process.env.NODE_ENV === 'production' && !process.env.REACT_APP_API_URL) {
   console.warn('[config] REACT_APP_API_URL is not set; using localhost fallback.');
@@ -23,37 +27,77 @@ const axiosInstance = axios.create({
   timeout: API_TIMEOUT_MS,
 });
 
+// "Server is waking up" notice: shown while any request has been pending for a few
+// seconds, removed as soon as all slow requests have finished.
+let slowPending = 0;
+let slowToastId = null;
+const markSlow = () => {
+  slowPending += 1;
+  if (slowToastId === null) {
+    slowToastId = toast.info('The server is waking up. This can take up to a minute after a quiet period, so please wait…', 0);
+  }
+};
+const settle = (config) => {
+  if (!config) return;
+  clearTimeout(config.slowTimer);
+  if (config.wasSlow) {
+    slowPending -= 1;
+    if (slowPending === 0 && slowToastId !== null) {
+      dismissToast(slowToastId);
+      slowToastId = null;
+    }
+  }
+};
+
 axiosInstance.interceptors.request.use((config) => {
   const token = getAuthToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // Reset: a retried request is a copy of its original config.
+  config.wasSlow = false;
+  config.slowTimer = setTimeout(() => {
+    config.wasSlow = true;
+    markSlow();
+  }, SLOW_REQUEST_MS);
   return config;
 });
 
 axiosInstance.interceptors.response.use(
-  (response) => response,
-  (error) => {
+  (response) => {
+    settle(response.config);
+    return response;
+  },
+  async (error) => {
+    settle(error?.config);
     if (!error?.response) {
-      error.message = 'Network error. Please check your connection or try again.';
+      error.message = error?.code === 'ECONNABORTED'
+        ? 'The server took too long to respond. Please try again in a moment.'
+        : 'Network error. Please check your connection or try again.';
     }
     // Locked year or locked marks: an admin may proceed by giving a reason, which the
     // server records in the audit log. Ask once, then retry the very same request.
     if (error?.response?.status === 423 && error.response.data?.requiresReason && !error.config?.lockRetried) {
-      const reason = window.prompt(`${error.response.data.message}\n\nReason for this change:`);
-      if (reason && reason.trim().length >= 5) {
+      const reason = await promptDialog({
+        title: 'This data is locked',
+        message: `${error.response.data.message}`,
+        label: 'Reason for this change',
+        placeholder: 'e.g. Evaluator corrected their sheet',
+        confirmLabel: 'Change anyway',
+        minLength: 5,
+      });
+      if (reason) {
         const retry = { ...error.config, lockRetried: true };
-        retry.headers['X-Lock-Override-Reason'] = encodeURIComponent(reason.trim());
+        retry.headers['X-Lock-Override-Reason'] = encodeURIComponent(reason);
         return axiosInstance(retry);
       }
-      error.response.data.message = reason === null
-        ? 'Cancelled. Nothing was changed.'
-        : 'A reason of at least 5 characters is required. Nothing was changed.';
+      error.response.data.message = 'Cancelled. Nothing was changed.';
     }
     if (error?.response?.status === 401) {
       clearAuthSession();
       if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
+        // Explain why, and come back to the same page after signing in again.
+        window.location.href = loginUrl('expired', window.location.pathname + window.location.search);
       }
     }
     return Promise.reject(error);
