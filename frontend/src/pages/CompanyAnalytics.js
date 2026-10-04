@@ -64,14 +64,14 @@ const CompanyAnalytics = () => {
     setSearchQuery(query);
     if (query.length < 2) { setSearchResults([]); return; }
     try {
-      const response = await axiosInstance.get(`/analytics/companies/search?name=${query}`);
+      const response = await axiosInstance.get('/analytics/companies/search', { params: { name: query } });
       if (response.data.success) setSearchResults(response.data.data);
     } catch (error) { console.error('Search error:', error); }
   };
 
   const handleSelectCompany = async (companyName) => {
     try {
-      const response = await axiosInstance.get(`/analytics/companies/details/${companyName}`);
+      const response = await axiosInstance.get(`/analytics/companies/details/${encodeURIComponent(companyName)}`);
       if (response.data.success) {
         setSelectedCompany(response.data.data);
         setSearchQuery('');
@@ -116,7 +116,7 @@ const CompanyAnalytics = () => {
         </div>
         <div className="stat-card border-l-4 border-blue-500">
           <p className="stat-label">Top Recruiting Organization</p>
-          <p className="text-lg font-bold text-gray-900 mt-1 leading-tight">{topCompany?.companyName || topCompany?._id || 'â€”'}</p>
+          <p className="text-lg font-bold text-gray-900 mt-1 leading-tight">{topCompany?.companyName || topCompany?._id || '—'}</p>
           <p className="stat-secondary">{topCompany?.count ?? 0} students</p>
         </div>
       </div>
@@ -137,7 +137,7 @@ const CompanyAnalytics = () => {
                   <button key={idx} onClick={() => handleSelectCompany(company._id)}
                     className="w-full text-left px-4 py-2.5 hover:bg-blue-50 border-b border-gray-100 last:border-b-0">
                     <div className="text-sm font-medium text-gray-900">{company.companyName || company._id}</div>
-                    <div className="text-xs text-gray-500">{company.location} â€” {company.count} student(s)</div>
+                    <div className="text-xs text-gray-500">{company.location} — {company.count} student(s)</div>
                   </button>
                 ))}
               </div>
@@ -159,8 +159,8 @@ const CompanyAnalytics = () => {
               <div className="grid grid-cols-3 border-b border-gray-200">
                 {[
                   { label: 'Total Students', value: selectedCompany.details.totalStudents },
-                  { label: 'Distinct Roles', value: selectedCompany.roles.length },
-                  { label: 'Status Types', value: selectedCompany.status.length },
+                  { label: 'Distinct Roles', value: selectedCompany.roles?.length ?? 0 },
+                  { label: 'Hiring Years', value: selectedCompany.yearlyPlacements?.length ?? 0 },
                 ].map((kpi) => (
                   <div key={kpi.label} className="px-5 py-4 border-r border-gray-200 last:border-r-0">
                     <p className="stat-label">{kpi.label}</p>
@@ -180,7 +180,7 @@ const CompanyAnalytics = () => {
                         <td className="font-medium text-gray-900">{student.name}</td>
                         <td className="font-mono text-xs text-gray-600">{student.uid}</td>
                         <td><span className="badge badge-blue">{student.branch}</span></td>
-                        <td className="text-gray-600">{student.internshipTitle || 'â€”'}</td>
+                        <td className="text-gray-600">{student.internshipTitle || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -326,7 +326,7 @@ const CompanyAnalytics = () => {
             <div>
               <h2 className="section-title">Company-wise Department Distribution</h2>
               <p className="text-xs text-gray-500 mt-0.5">
-                Showing {(currentPage - 1) * itemsPerPage + 1}â€“{Math.min(currentPage * itemsPerPage, companyBranches.length)} of {companyBranches.length} companies
+                Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, companyBranches.length)} of {companyBranches.length} companies
               </p>
             </div>
           </div>

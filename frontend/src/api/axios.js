@@ -58,6 +58,8 @@ export const login = (payload) => {
   return axiosInstance.post('/auth/login', payload);
 };
 
+export const logout = () => axiosInstance.post('/auth/logout');
+
 // Internships endpoints
 export const getInternships = (filters = {}) => {
   const params = new URLSearchParams();
@@ -80,6 +82,8 @@ export const createInternship = (data) => {
 export const updateInternship = (id, data) => {
   return axiosInstance.put(`/internships/${id}`, data);
 };
+
+export const updateMarks = (id, marks) => axiosInstance.put(`/internships/${id}/marks`, marks);
 
 export const deleteInternship = (id) => {
   return axiosInstance.delete(`/internships/${id}`);

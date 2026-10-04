@@ -123,7 +123,6 @@ const InternshipList = () => {
       'Internship Title': item.internshipTitle || '',
       'Start Date': new Date(item.startDate).toLocaleDateString(),
       'End Date': new Date(item.endDate).toLocaleDateString(),
-      'Status': item.status,
       'External Mentor': item.externalMentorName,
       'Document Link': item.documentLink || '',
       'Submitted At': new Date(item.submittedAt).toLocaleDateString(),
@@ -268,6 +267,7 @@ const InternshipList = () => {
                 <th>Student Name</th>
                 <th>UID</th>
                 <th>Branch</th>
+                <th>Phone</th>
                 <th>Company</th>
                 <th>Role / Type</th>
                 <th>Duration</th>
@@ -283,6 +283,7 @@ const InternshipList = () => {
                   </td>
                   <td className="font-mono text-xs text-gray-600">{item.uid}</td>
                   <td><span className="badge badge-blue">{item.branch}</span></td>
+                  <td className="text-gray-600">{item.phone || '—'}</td>
                   <td>
                     <div className="text-gray-900">{item.companyName}</div>
                     {item.companyLocation && <div className="text-xs text-gray-400">{item.companyLocation}</div>}

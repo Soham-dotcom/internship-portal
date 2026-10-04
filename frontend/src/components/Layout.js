@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { clearAuthSession, getAuthUser, getAuthYear } from '../auth/session';
+import { clearAuthSession, getAuthUser, getAuthYear, getAuthRole } from '../auth/session';
+import { logout } from '../api/axios';
 
 const SIDEBAR_WIDTH = 'w-60';
 
@@ -57,10 +58,15 @@ const navigation = [
 ];
 
 const Layout = ({ children }) => {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Closed by default on small screens: a 240px fixed sidebar covering a phone
+  // viewport made the app unusable on mobile.
+  const [sidebarOpen, setSidebarOpen] = useState(() => (
+    typeof window === 'undefined' ? true : window.innerWidth >= 1024
+  ));
   const location = useLocation();
   const year = getAuthYear();
   const user = getAuthUser();
+  const role = getAuthRole();
 
   const isActive = (href) =>
     href === '/' ? location.pathname === '/' : location.pathname.startsWith(href);
@@ -106,6 +112,12 @@ const Layout = ({ children }) => {
                     <li key={item.name}>
                       <Link
                         to={item.href}
+                        aria-current={active ? 'page' : undefined}
+                        onClick={() => {
+                          // On mobile the sidebar overlays the page, so it has to
+                          // get out of the way once a destination is chosen.
+                          if (window.innerWidth < 1024) setSidebarOpen(false);
+                        }}
                         className={`flex items-center px-3 py-2 rounded text-sm font-medium transition-colors
                           ${active
                             ? 'bg-accent-600 text-white'
@@ -145,19 +157,41 @@ const Layout = ({ children }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-500 font-medium">
-                Internship Evaluation Portal &mdash; Administrative View
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="hidden md:inline text-sm text-gray-500 font-medium truncate">
+                Internship Evaluation Portal
               </span>
-              <div className="hidden sm:flex items-center gap-2 text-xs text-gray-500">
-                {user && <span className="px-2 py-0.5 rounded bg-slate-100">{user}</span>}
-                {year && <span className="px-2 py-0.5 rounded bg-slate-100">Year {year}</span>}
+              {/* Identity and permission level stay visible: people should always be
+                  able to see who they are signed in as and what they can do. */}
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                {user && (
+                  <span className="px-2 py-0.5 rounded bg-slate-100 max-w-[10rem] truncate" title={user}>
+                    {user}
+                  </span>
+                )}
+                <span
+                  className={role === 'admin' ? 'badge-blue' : 'badge-gray'}
+                  title={role === 'admin'
+                    ? 'Full access, including destructive and configuration actions'
+                    : 'Day-to-day access. Destructive and configuration actions are restricted.'}
+                >
+                  {role === 'admin' ? 'Admin' : 'Staff'}
+                </span>
+                {year && <span className="hidden sm:inline px-2 py-0.5 rounded bg-slate-100">Year {year}</span>}
                 <button
-                  onClick={() => {
+                  type="button"
+                  onClick={async () => {
+                    // Tell the server first so the token is dead everywhere, not just
+                    // forgotten by this browser. Sign out locally even if that fails.
+                    try {
+                      await logout();
+                    } catch {
+                      // Network or already-expired token: nothing more to revoke.
+                    }
                     clearAuthSession();
                     window.location.href = '/login';
                   }}
-                  className="px-2 py-0.5 rounded bg-red-50 text-red-600 hover:bg-red-100"
+                  className="px-2 py-0.5 rounded bg-red-50 text-red-600 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500"
                 >
                   Logout
                 </button>

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import * as XLSX from 'xlsx';
-import { getEvaluationOverview, getEvaluationSettings, updateEvaluationSettings, updateInternship } from '../api/axios';
+import { getEvaluationOverview, getEvaluationSettings, updateEvaluationSettings, updateInternship, updateMarks } from '../api/axios';
+import { isAdmin } from '../auth/session';
 
 const EvaluationOverview = () => {
   const [rows, setRows] = useState([]);
@@ -24,6 +25,11 @@ const EvaluationOverview = () => {
   const [editRowId, setEditRowId] = useState(null);
   const [editData, setEditData] = useState({});
   const [savingId, setSavingId] = useState(null);
+  // Last weights confirmed by the server. null until loaded, which keeps Save disabled.
+  const [savedSettings, setSavedSettings] = useState(null);
+  const [settingsError, setSettingsError] = useState('');
+  const [savingSettings, setSavingSettings] = useState(false);
+  const admin = isAdmin();
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -44,23 +50,31 @@ const EvaluationOverview = () => {
   }, []);
 
   const loadSettings = useCallback(async () => {
+    setSettingsError('');
     try {
       const response = await getEvaluationSettings();
       if (response.data.success && response.data.data) {
-        if (response.data.data.totalWeeks) setTotalWeeks(response.data.data.totalWeeks);
-        if (response.data.data.weights) {
-          const incoming = response.data.data.weights;
-          const legacyViva = incoming.viva;
-          setWeights((prev) => ({
-            ...prev,
-            ...incoming,
-            external_viva: incoming.external_viva ?? (legacyViva ? legacyViva / 2 : prev.external_viva),
-            internal_viva: incoming.internal_viva ?? (legacyViva ? legacyViva / 2 : prev.internal_viva),
-          }));
-        }
+        const incoming = response.data.data.weights || {};
+        const legacyViva = incoming.viva;
+        const loaded = {
+          totalWeeks: response.data.data.totalWeeks || 8,
+          weights: {
+            meeting: incoming.meeting,
+            weekly: incoming.weekly,
+            final: incoming.final,
+            external: incoming.external,
+            external_viva: incoming.external_viva ?? (legacyViva ? legacyViva / 2 : 12.5),
+            internal_viva: incoming.internal_viva ?? (legacyViva ? legacyViva / 2 : 12.5),
+          },
+        };
+        setTotalWeeks(loaded.totalWeeks);
+        setWeights(loaded.weights);
+        setSavedSettings(loaded);
       }
     } catch (error) {
-      console.warn('Failed to load evaluation settings', error);
+      // Leave savedSettings null: Save stays disabled, so defaults can never be
+      // written over the real weights just because loading failed.
+      setSettingsError('Could not load the saved evaluation weights. Scores below use default weights. Click Refresh to try again.');
     }
   }, []);
 
@@ -69,14 +83,42 @@ const EvaluationOverview = () => {
     fetchRows();
   }, [loadSettings, fetchRows]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      updateEvaluationSettings({ totalWeeks, weights }).catch((error) => {
-        console.warn('Failed to save evaluation settings', error);
-      });
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [totalWeeks, weights]);
+  // Weights decide every student's final mark, so they are only ever saved by an
+  // explicit admin action. (They used to auto-save on every change, including on
+  // page load before the real values had arrived, which could reset them.)
+  const settingsDirty = Boolean(savedSettings) && (
+    Number(totalWeeks) !== Number(savedSettings.totalWeeks)
+    || Object.keys(weights).some((key) => Number(weights[key]) !== Number(savedSettings.weights[key]))
+  );
+  const canEditSettings = admin && Boolean(savedSettings);
+
+  const handleSaveSettings = async () => {
+    // Same 0.01 tolerance as the server, so decimal weights like 33.3/33.3/33.4 save.
+    if (Math.abs(weightSum - 100) > 0.01) {
+      setMessage({ type: 'error', text: `Weights must add up to 100% before saving (currently ${weightSum}%).` });
+      return;
+    }
+    if (!window.confirm('Save these weights? Every student\'s final score for this year will be recalculated with them.')) {
+      return;
+    }
+    setSavingSettings(true);
+    try {
+      const response = await updateEvaluationSettings({ totalWeeks, weights });
+      const saved = response.data.data;
+      setSavedSettings({ totalWeeks: saved.totalWeeks, weights: { ...weights, ...saved.weights } });
+      setMessage({ type: 'success', text: 'Evaluation weights saved.' });
+    } catch (error) {
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Could not save the weights. Nothing was changed.' });
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleDiscardSettings = () => {
+    if (!savedSettings) return;
+    setTotalWeeks(savedSettings.totalWeeks);
+    setWeights(savedSettings.weights);
+  };
 
   const displayMetric = (value) => {
     if (value === null || value === undefined || value === 0) return '-';
@@ -167,24 +209,40 @@ const EvaluationOverview = () => {
   const saveEdit = async (row) => {
     setSavingId(row._id);
     try {
-      const payload = {
-        name: editData.name,
-        uid: editData.uid,
-        externalMentorName: editData.externalMentorName,
-        meeting_attended: editData.meeting_attended,
-        weekly_reports_completed: editData.weekly_reports_completed,
-        final_report_submitted: editData.final_report_submitted,
-        external_marks: editData.external_marks,
-        external_viva_marks: editData.external_viva_marks,
-        internal_viva_marks: editData.internal_viva_marks
-      };
-      const response = await updateInternship(row._id, payload);
-      if (response.data.success) {
-        setRows((prev) => prev.map((item) => (item._id === row._id ? { ...item, ...payload } : item)));
+      // Marks go through their own validated, audited endpoint. The general
+      // record-edit route deliberately ignores mark fields.
+      const markFields = [
+        'meeting_attended', 'weekly_reports_completed', 'final_report_submitted',
+        'external_marks', 'external_viva_marks', 'internal_viva_marks',
+      ];
+      const changedMarks = Object.fromEntries(markFields
+        .filter((field) => String(editData[field] ?? '') !== String(row[field] ?? ''))
+        .map((field) => [field, editData[field]]));
+      const detailsChanged = editData.name !== (row.name || '')
+        || editData.externalMentorName !== (row.externalMentorName || '');
+
+      if (Object.keys(changedMarks).length === 0 && !detailsChanged) {
         cancelEdit();
-      } else {
-        setMessage({ type: 'error', text: response.data.message || 'Failed to update student' });
+        return;
       }
+
+      let saved = {};
+      if (Object.keys(changedMarks).length > 0) {
+        const marksResponse = await updateMarks(row._id, changedMarks);
+        saved = marksResponse.data.data;
+      }
+      if (detailsChanged) {
+        const detailsResponse = await updateInternship(row._id, {
+          name: editData.name,
+          externalMentorName: editData.externalMentorName,
+        });
+        saved = { ...saved, name: detailsResponse.data.data.name, externalMentorName: detailsResponse.data.data.externalMentorName };
+      }
+
+      // Show what the server stored, never what we hoped it stored.
+      setRows((prev) => prev.map((item) => (item._id === row._id ? { ...item, ...saved } : item)));
+      setMessage({ type: 'success', text: `Saved marks for ${row.uid}.` });
+      cancelEdit();
     } catch (error) {
       setMessage({ type: 'error', text: error.response?.data?.message || error.message });
     } finally {
@@ -214,6 +272,11 @@ const EvaluationOverview = () => {
 
       <div className="section-card">
         <div className="section-card-body space-y-4">
+          {settingsError && (
+            <div className="alert-warning">
+              <div>{settingsError}</div>
+            </div>
+          )}
           {message.text && (
             <div className={`alert-${message.type === 'success' ? 'success' : message.type === 'warning' ? 'warning' : 'error'}`}>
               <div className="whitespace-pre-wrap">{message.text}</div>
@@ -270,6 +333,7 @@ const EvaluationOverview = () => {
                 value={totalWeeks}
                 onChange={(e) => setTotalWeeks(Number(e.target.value) || 1)}
                 className="input w-24"
+                disabled={!canEditSettings}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -281,6 +345,7 @@ const EvaluationOverview = () => {
                 value={weights.meeting}
                 onChange={(e) => setWeights({ ...weights, meeting: Number(e.target.value) || 0 })}
                 className="input w-20"
+                disabled={!canEditSettings}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -292,6 +357,7 @@ const EvaluationOverview = () => {
                 value={weights.weekly}
                 onChange={(e) => setWeights({ ...weights, weekly: Number(e.target.value) || 0 })}
                 className="input w-20"
+                disabled={!canEditSettings}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -303,6 +369,7 @@ const EvaluationOverview = () => {
                 value={weights.final}
                 onChange={(e) => setWeights({ ...weights, final: Number(e.target.value) || 0 })}
                 className="input w-20"
+                disabled={!canEditSettings}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -314,6 +381,7 @@ const EvaluationOverview = () => {
                 value={weights.external}
                 onChange={(e) => setWeights({ ...weights, external: Number(e.target.value) || 0 })}
                 className="input w-20"
+                disabled={!canEditSettings}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -325,6 +393,7 @@ const EvaluationOverview = () => {
                 value={weights.external_viva}
                 onChange={(e) => setWeights({ ...weights, external_viva: Number(e.target.value) || 0 })}
                 className="input w-20"
+                disabled={!canEditSettings}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -336,15 +405,36 @@ const EvaluationOverview = () => {
                 value={weights.internal_viva}
                 onChange={(e) => setWeights({ ...weights, internal_viva: Number(e.target.value) || 0 })}
                 className="input w-20"
+                disabled={!canEditSettings}
               />
             </div>
             <div className={`text-sm ${weightSum === 100 ? 'text-green-600' : 'text-amber-600'}`}>
               Weight sum: {weightSum}%
             </div>
+            {admin && settingsDirty && (
+              <>
+                <button className="btn-primary" onClick={handleSaveSettings} disabled={savingSettings}>
+                  {savingSettings ? 'Saving...' : 'Save weights'}
+                </button>
+                <button className="btn-secondary" onClick={handleDiscardSettings} disabled={savingSettings}>
+                  Discard changes
+                </button>
+              </>
+            )}
+            {!admin && (
+              <span className="text-xs text-gray-500">Only an administrator can change the weights.</span>
+            )}
             <button className="btn-secondary" onClick={handleExport} disabled={filteredRows.length === 0}>
               Export to Excel
             </button>
-            <button className="btn-primary" onClick={fetchRows} disabled={loading}>
+            <button
+              className="btn-primary"
+              onClick={() => {
+                if (!savedSettings) loadSettings();
+                fetchRows();
+              }}
+              disabled={loading}
+            >
               {loading ? 'Loading...' : 'Refresh'}
             </button>
           </div>
@@ -387,16 +477,8 @@ const EvaluationOverview = () => {
                     )}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-gray-700">
-                    {editRowId === row._id ? (
-                      <input
-                        type="text"
-                        value={editData.uid}
-                        onChange={(e) => setEditData({ ...editData, uid: e.target.value })}
-                        className="input w-36"
-                      />
-                    ) : (
-                      row.uid
-                    )}
+                    {/* UID is the student's identity and is never editable. */}
+                    {row.uid}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-gray-700">{row.internalMentorName || '-'}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-gray-700">

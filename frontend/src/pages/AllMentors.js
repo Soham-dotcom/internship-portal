@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { axiosInstance, listMentorDirectory, createMentor, updateMentor } from '../api/axios';
+import { isAdmin } from '../auth/session';
 
 const AllMentors = () => {
   const location = useLocation();
@@ -240,7 +241,8 @@ const AllMentors = () => {
           <h1 className="page-title">Evaluator Directory</h1>
           <p className="page-subtitle">View all external evaluators and internal examiners and their group assignments</p>
         </div>
-        {currentMentors.length > 0 && (
+        {/* Admin only: the server rejects this for staff anyway. */}
+        {isAdmin() && currentMentors.length > 0 && (
           <button onClick={handleDeleteAllMentors} className="btn-danger">
             Delete All {activeTab === 'external' ? 'External Evaluators' : 'Internal Examiners'}
           </button>
@@ -403,7 +405,7 @@ const AllMentors = () => {
               {totalPages > 1 ? (
                 <>
                   <p className="text-xs text-gray-500">
-                    Showing {indexOfFirstMentor + 1}â€“{Math.min(indexOfLastMentor, filteredMentors.length)} of {filteredMentors.length} evaluators
+                    Showing {indexOfFirstMentor + 1}–{Math.min(indexOfLastMentor, filteredMentors.length)} of {filteredMentors.length} evaluators
                   </p>
                   <div className="flex gap-2">
                     <button

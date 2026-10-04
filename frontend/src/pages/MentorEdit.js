@@ -105,7 +105,7 @@ const MentorEdit = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Panel â€” Student List */}
+        {/* Left Panel — Student List */}
         <div className="lg:col-span-1">
           <div className="section-card h-full">
             <div className="section-card-header">
@@ -142,14 +142,14 @@ const MentorEdit = () => {
           </div>
         </div>
 
-        {/* Right Panel â€” Edit Form */}
+        {/* Right Panel — Edit Form */}
         <div className="lg:col-span-2">
           {selectedInternship ? (
             <div className="section-card">
               <div className="section-card-header flex items-center justify-between">
                 <div>
                   <h2 className="section-title">Student Record: {selectedInternship.name}</h2>
-                  <p className="text-xs text-gray-500">{selectedInternship.uid} â€” {selectedInternship.companyName}</p>
+                  <p className="text-xs text-gray-500">{selectedInternship.uid} — {selectedInternship.companyName}</p>
                 </div>
                 <button onClick={() => { setSelectedInternship(null); setSuccessMessage(''); }} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
               </div>
@@ -328,7 +328,7 @@ const MentorEdit = () => {
                     <div className="space-y-2">
                       {editData.attendance.map((entry, idx) => (
                         <div key={`${entry.date || idx}`} className="text-sm text-gray-700">
-                          {formatDateTime(entry.date)} â€” {entry.status}
+                          {formatDateTime(entry.date)} — {entry.status}
                         </div>
                       ))}
                     </div>

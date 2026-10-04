@@ -46,15 +46,14 @@ const Login = () => {
 
     try {
       const response = await login({ username, password, year });
-      const token = response.data?.data?.token;
-      const usernameValue = response.data?.data?.username;
-      const yearValue = response.data?.data?.year;
+      const data = response.data?.data || {};
+      const { token, username: usernameValue, year: yearValue, role, allowedYears } = data;
 
       if (!token || !usernameValue || !yearValue) {
         throw new Error('Invalid login response');
       }
 
-      setAuthSession({ token, year: yearValue, username: usernameValue });
+      setAuthSession({ token, year: yearValue, username: usernameValue, role, allowedYears });
       navigate(fromPath, { replace: true });
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Login failed');

@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import { randomPick, exportRandom } from '../api/groups';
 
 const branches = ['COMPS', 'EXTC', 'CSE', 'MCA', 'AIML', 'IT', 'MECH', 'ETRX'];
-const statuses = ['pending', 'approved', 'in-progress', 'completed', 'cancelled'];
 
 const StudentPicker = () => {
-  const [filters, setFilters] = useState({ branch: '', company: '', status: '', year: '' });
+  const [filters, setFilters] = useState({ branch: '', company: '' });
   const [count, setCount] = useState(1);
   const [pickedStudents, setPickedStudents] = useState([]);
   const [totalAvailable, setTotalAvailable] = useState(0);
@@ -22,8 +21,6 @@ const StudentPicker = () => {
         filters: {
           ...(filters.branch && { branch: filters.branch }),
           ...(filters.company && { company: filters.company }),
-          ...(filters.status && { status: filters.status }),
-          ...(filters.year && { year: filters.year }),
         },
         count: parseInt(count) || 1,
       };
@@ -58,7 +55,7 @@ const StudentPicker = () => {
   };
 
   const resetFilters = () => {
-    setFilters({ branch: '', company: '', status: '', year: '' });
+    setFilters({ branch: '', company: '' });
     setPickedStudents([]);
     setMessage({ type: '', text: '' });
   };
@@ -89,32 +86,21 @@ const StudentPicker = () => {
           <h2 className="section-title">Selection Criteria</h2>
         </div>
         <div className="section-card-body">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
-              <label className="form-label">Branch</label>
-              <select name="branch" value={filters.branch} onChange={handleFilterChange} className="form-select">
+              <label htmlFor="picker-branch" className="form-label">Branch</label>
+              <select id="picker-branch" name="branch" value={filters.branch} onChange={handleFilterChange} className="form-select">
                 <option value="">All Branches</option>
                 {branches.map((b) => <option key={b} value={b}>{b}</option>)}
               </select>
             </div>
             <div>
-              <label className="form-label">Status</label>
-              <select name="status" value={filters.status} onChange={handleFilterChange} className="form-select">
-                <option value="">All Statuses</option>
-                {statuses.map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-              </select>
+              <label htmlFor="picker-company" className="form-label">Company</label>
+              <input id="picker-company" type="text" name="company" value={filters.company} onChange={handleFilterChange} placeholder="Filter by company" className="form-input" />
             </div>
             <div>
-              <label className="form-label">Company</label>
-              <input type="text" name="company" value={filters.company} onChange={handleFilterChange} placeholder="Filter by company" className="form-input" />
-            </div>
-            <div>
-              <label className="form-label">Year</label>
-              <input type="text" name="year" value={filters.year} onChange={handleFilterChange} placeholder="e.g. 2024" className="form-input" />
-            </div>
-            <div>
-              <label className="form-label">Number to Select</label>
-              <input type="number" value={count} onChange={(e) => setCount(e.target.value)} min="1" placeholder="e.g. 5" className="form-input" />
+              <label htmlFor="picker-count" className="form-label">Number to Select</label>
+              <input id="picker-count" type="number" value={count} onChange={(e) => setCount(e.target.value)} min="1" placeholder="e.g. 5" className="form-input" />
             </div>
           </div>
 
@@ -138,7 +124,7 @@ const StudentPicker = () => {
             <h2 className="section-title">Selected Students</h2>
             <p className="text-sm text-gray-500">{pickedStudents.length} selected from {totalAvailable} available</p>
           </div>
-          <div className="p-0">
+          <div className="overflow-x-auto">
             <table className="data-table">
               <thead>
                 <tr>
@@ -148,24 +134,20 @@ const StudentPicker = () => {
                   <th>Branch</th>
                   <th>Company</th>
                   <th>Type</th>
-                  <th>Status</th>
                   <th>Mentor</th>
                   <th>Email</th>
                 </tr>
               </thead>
               <tbody>
                 {pickedStudents.map((student, index) => (
-                  <tr key={index}>
+                  <tr key={student.uid || index}>
                     <td>{index + 1}</td>
                     <td className="font-medium">{student.name}</td>
                     <td>{student.uid}</td>
                     <td><span className="badge badge-blue">{student.branch}</span></td>
                     <td>{student.company}</td>
                     <td>{student.internshipType}</td>
-                    <td>
-                      <span className="badge badge-green">{student.status}</span>
-                    </td>
-                    <td>{student.mentor || 'â€”'}</td>
+                    <td>{student.mentor || '—'}</td>
                     <td className="text-xs">{student.email}</td>
                   </tr>
                 ))}

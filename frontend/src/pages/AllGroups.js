@@ -16,6 +16,7 @@ import {
 } from '../api/groups';
 import { axiosInstance } from '../api/axios';
 import { getMailDraft, saveMailDraft, listSenderEmails, addSenderEmail } from '../api/mail';
+import { isAdmin } from '../auth/session';
 
 const AllGroups = () => {
   const [groups, setGroups] = useState([]);
@@ -43,13 +44,14 @@ const AllGroups = () => {
   const [draftModalOpen, setDraftModalOpen] = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftSaving, setDraftSaving] = useState(false);
-  const [draftForm, setDraftForm] = useState({ subject: '', body: '' });
+  const [draftForm, setDraftForm] = useState({ subject: '', body: '', evaluationLink: '' });
   const [draftModalError, setDraftModalError] = useState('');
 
   const [sendMailModalOpen, setSendMailModalOpen] = useState(false);
   const [sendMailModalError, setSendMailModalError] = useState('');
   const [mailGroup, setMailGroup] = useState(null);
   const [mailRecipientType, setMailRecipientType] = useState('external');
+  const [mailEvaluationLink, setMailEvaluationLink] = useState('');
   const [senderEmails, setSenderEmails] = useState([]);
   const [selectedSenderEmailId, setSelectedSenderEmailId] = useState('');
   const [loadingSenderEmails, setLoadingSenderEmails] = useState(false);
@@ -411,6 +413,14 @@ const AllGroups = () => {
     } finally {
       setLoadingSenderEmails(false);
     }
+
+    // Prefill evaluation link from saved draft (optional)
+    try {
+      const dr = await getMailDraft();
+      if (dr.data?.success) setMailEvaluationLink(dr.data.data?.evaluationLink || '');
+    } catch (e) {
+      // ignore
+    }
   };
 
   const closeSendMailModal = () => {
@@ -514,7 +524,9 @@ const AllGroups = () => {
           return;
         }
       } else {
-        const msg = 'Please select a sender email (or add a new one).';
+        const msg = isAdmin()
+          ? 'Please select a sender email (or add a new one).'
+          : 'Please select a sender email. Ask an administrator if the one you need is missing.';
         setSendMailModalError(msg);
         setMessage({ type: 'error', text: msg });
         return;
@@ -528,11 +540,25 @@ const AllGroups = () => {
     setSendMailModalError('');
     setMessage({ type: '', text: '' });
 
+    // Validate evaluation link if provided
+    if (mailEvaluationLink && mailEvaluationLink.trim()) {
+      try {
+        new URL(mailEvaluationLink.trim());
+      } catch (e) {
+        const msg = 'Evaluation Sheet Link is not a valid URL';
+        setSendMailModalError(msg);
+        setMessage({ type: 'error', text: msg });
+        setSendingMailByGroupId(prev => ({ ...prev, [groupId]: false }));
+        return;
+      }
+    }
+
     try {
-      console.log('[API] sendGroupMail()', { groupId, senderEmailId: effectiveSenderEmailId, recipientType: mailRecipientType });
+      console.log('[API] sendGroupMail()', { groupId, senderEmailId: effectiveSenderEmailId, recipientType: mailRecipientType, evaluationLink: mailEvaluationLink });
       const response = await sendGroupMail(groupId, {
         senderEmailId: effectiveSenderEmailId,
         recipientType: mailRecipientType,
+        evaluationLink: mailEvaluationLink,
       });
       console.log('[API] sendGroupMail() response', response?.data);
       if (response.data.success) {
@@ -573,6 +599,7 @@ const AllGroups = () => {
         setDraftForm({
           subject: res.data.data?.subject || '',
           body: res.data.data?.body || '',
+          evaluationLink: res.data.data?.evaluationLink || '',
         });
       }
     } catch (error) {
@@ -609,8 +636,8 @@ const AllGroups = () => {
 
     setDraftSaving(true);
     try {
-      console.log('[API] saveMailDraft()', { subjectLen: draftForm.subject.length, bodyLen: draftForm.body.length });
-      const res = await saveMailDraft({ subject: draftForm.subject, body: draftForm.body });
+      console.log('[API] saveMailDraft()', { subjectLen: draftForm.subject.length, bodyLen: draftForm.body.length, evaluationLink: draftForm.evaluationLink });
+      const res = await saveMailDraft({ subject: draftForm.subject, body: draftForm.body, evaluationLink: draftForm.evaluationLink });
       console.log('[API] saveMailDraft() response', res?.data);
       if (res.data.success) {
         setMessage({ type: 'success', text: 'Mail draft saved successfully' });
@@ -831,7 +858,7 @@ const AllGroups = () => {
                             <td className="font-medium">{student.name}</td>
                             <td>{student.uid}</td>
                             <td><span className="badge badge-blue">{student.branch}</span></td>
-                            <td>{student.company || 'â€”'}</td>
+                            <td>{student.company || '—'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -870,7 +897,7 @@ const AllGroups = () => {
                   onChange={(e) => setEditFormData({ ...editFormData, externalMentor: e.target.value })}
                   className="form-select"
                 >
-                  <option value="">â€” No External Evaluator â€”</option>
+                  <option value="">— No External Evaluator —</option>
                   {availableExternalMentors.map((mentor) => (
                     <option key={mentor._id} value={mentor._id}>{mentor.name} ({mentor.company})</option>
                   ))}
@@ -883,7 +910,7 @@ const AllGroups = () => {
                   onChange={(e) => setEditFormData({ ...editFormData, internalMentor: e.target.value })}
                   className="form-select"
                 >
-                  <option value="">â€” No Internal Examiner â€”</option>
+                  <option value="">— No Internal Examiner —</option>
                   {availableInternalMentors.map((mentor) => (
                     <option key={mentor._id} value={mentor._id}>{mentor.name} ({mentor.department || 'Faculty'})</option>
                   ))}
@@ -940,7 +967,7 @@ const AllGroups = () => {
                   onChange={(e) => setSelectedMentorId(e.target.value)}
                   className="form-select"
                 >
-                  <option value="">â€” Select an evaluator â€”</option>
+                  <option value="">— Select an evaluator —</option>
                   {selectableMentorsForAssign.map((mentor) => (
                     <option key={mentor._id} value={mentor._id}>
                       {mentor.name} ({mentor.email})
@@ -1021,6 +1048,17 @@ const AllGroups = () => {
                         Optional placeholders: {'{{mentorName}}'}, {'{{mentorEmail}}'}, {'{{groupName}}'}
                       </p>
                   </div>
+                  <div>
+                    <label className="form-label">Evaluation Sheet Link (Google Sheets/Docs)</label>
+                    <input
+                      type="url"
+                      value={draftForm.evaluationLink}
+                      onChange={(e) => setDraftForm({ ...draftForm, evaluationLink: e.target.value })}
+                      className="form-input"
+                      placeholder="https://docs.google.com/.."
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Optional. Clickable link will be inserted into the sent email.</p>
+                  </div>
                 </>
               )}
             </div>
@@ -1064,7 +1102,7 @@ const AllGroups = () => {
                   <option value="internal">Internal Examiner</option>
                 </select>
                 <p className="mt-1 text-xs text-gray-500">
-                  External: {mailGroup.externalMentor?.email || 'â€”'} | Internal: {mailGroup.internalMentor?.email || 'â€”'}
+                  External: {mailGroup.externalMentor?.email || '—'} | Internal: {mailGroup.internalMentor?.email || '—'}
                 </p>
               </div>
 
@@ -1090,11 +1128,12 @@ const AllGroups = () => {
                     }}
                     className="form-select"
                   >
-                    <option value="">â€” Select sender email â€”</option>
+                    <option value="">— Select sender email —</option>
                     {senderEmails.map(s => (
                       <option key={s._id} value={s._id}>{s.email}</option>
                     ))}
-                    <option value="__add__">+ Add New Sender Email</option>
+                    {/* Storing mail credentials is admin only (enforced server-side too). */}
+                    {isAdmin() && <option value="__add__">+ Add New Sender Email</option>}
                   </select>
                 )}
               </div>
@@ -1134,6 +1173,17 @@ const AllGroups = () => {
                   </div>
                 </div>
               )}
+              <div>
+                <label className="form-label">Evaluation Sheet Link (editable before send)</label>
+                <input
+                  type="url"
+                  value={mailEvaluationLink}
+                  onChange={(e) => setMailEvaluationLink(e.target.value)}
+                  className="form-input"
+                  placeholder="https://docs.google.com/..."
+                />
+                <p className="mt-1 text-xs text-gray-500">This link will be inserted into the email you send to the evaluator. You can edit it here before sending.</p>
+              </div>
             </div>
 
             <div className="flex gap-3 px-6 py-4 border-t border-gray-200">

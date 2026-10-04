@@ -27,6 +27,16 @@ Newest first. What was built, how it was tested, what broke and how it was fixed
 - **Real data:** backed up production (read-only, 1,378 documents across 16 collections),
   restored it into a throwaway in-memory MongoDB, and all counts and the unique `uid` index
   matched. The local copy was deleted afterwards.
+- **In the real app** (built frontend + real backend on a throwaway in-memory database with
+  generated test accounts):
+  - admin: weights load with no save request on page load; 110% is refused, 100% saves and survives a reload
+  - inline mark edit saves and survives a reload; viva 99 is refused with a clear message; UID not editable
+  - staff: weight inputs disabled with an explanation; a direct API call to change weights gets 403;
+    "Delete All evaluators" not shown
+  - Logout calls the server, and the old token then gets 401 "Your session has ended"
+  - *Not clicked through:* hiding "+ Add New Sender Email" for staff (needs a group with a mentor
+    in the mail dialog). It's a one-line conditional, and the server refuses staff anyway.
+- Frontend: `CI=true` production build (warnings fail) compiles cleanly.
 
 **Bugs found and fixed**
 - *Inline mark edits silently discarded.* The record-edit route had been whitelisted to ignore
@@ -34,6 +44,9 @@ Newest first. What was built, how it was tested, what broke and how it was fixed
   the dedicated marks endpoint.
 - *Weights could reset to defaults* if the settings request was slow (Render cold start),
   because the auto-save fired before the real values had loaded. Fixed by removing auto-save.
+- *Save/Discard buttons missing after my first edit:* a scripted replacement silently failed on
+  Windows CRLF line endings. Caught by the strict build's "assigned but never used" warning,
+  then fixed. Lesson: treat lint warnings as errors locally too, which Vercel does with `CI=true`.
 - *Canonical EJSON turned metadata numbers into wrapper objects*, so the backup version check
   failed. Fixed by keeping metadata as plain JSON and only the data in canonical EJSON.
 
