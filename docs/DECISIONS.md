@@ -5,6 +5,28 @@ Newest first.
 
 ---
 
+## 2026-10-05: Repository cleanup and removing student data from history
+
+**What.** Removed 37 files that deployment and development don't need: 17 overlapping or stale
+markdown guides (they described routes and fields that no longer exist), 11 one-off debug and
+seed scripts (several already broken), 3 finished database migrations, and Create React App
+boilerplate. They were copied to a local archive folder next to the project before removal.
+The real student spreadsheet was purged from **all of git history**, not just untracked, and a
+real student's details were replaced in the downloadable import template.
+
+**Kept on purpose.** `backend/package.json` *and* the root `package.json`. Both were added in
+the same "deployment" commit, and it isn't recorded which one Render builds from. Deleting the
+wrong one would take production down, so the duplicate stays until the Render settings are
+confirmed. `scripts/init-year.js` (needed each new academic year) and
+`backfill-company-names.js` (needed if company-name normalisation changes) also stay.
+
+**Trade-off.** Rewriting history changes every commit hash after the CSV was added, so any other
+clone must be re-cloned. A pre-rewrite backup bundle is kept locally, outside OneDrive.
+GitHub may still serve the old commits by hash from its cache until they are garbage-collected,
+which is why the repo should also be made private.
+
+---
+
 ## 2026-10-05: Import preview, add-only by default, and undo
 
 **What.** `POST /upload/import` first builds a plan for every row: new / changed (field-level

@@ -41,6 +41,25 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Why it is built this way:
 - **Backups:** nightly encrypted backup via GitHub Actions, with a tested restore. See
   [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
+## Project structure
+
+```
+.
+├── backend/                 Express API (deployed to Render)
+│   ├── server.js            app setup: security headers, CORS, auth, routes, error handling
+│   ├── routes/              one file per API area (internships, upload, groups, mentors, mail, ...)
+│   ├── models/              Mongoose schemas (one database per academic year + a shared one)
+│   ├── middleware/          auth + roles, audit log, rate limits, error handling
+│   ├── utils/               pure, unit-tested logic (import planning, marks rules, backups, ...)
+│   ├── scripts/             admin CLI: accounts, backup/restore, new-year setup; dangerous/ is guarded
+│   └── __tests__/           Jest unit + integration tests (in-memory MongoDB)
+├── frontend/                React SPA (deployed to Vercel; vercel.json holds headers + SPA rewrites)
+│   └── src/                 pages/, components/, api/ (axios client), auth/ (session)
+├── docs/                    architecture, decisions, plan, progress log, runbook, interview prep
+├── .github/workflows/       nightly encrypted database backup
+└── package.json             backend dependencies + scripts (start, test, backup, ...)
+```
+
 ## Running locally
 
 Prerequisites: Node.js 18+ and a MongoDB connection string. It must be a **replica set**

@@ -618,23 +618,23 @@ router.post('/import/:batchId/undo', audit('internships.bulk-import-undo', (req,
 // GET download template Excel
 router.get('/template', (req, res) => {
   try {
+    // Fictional example row. Never put a real student's details in the template:
+    // it is downloadable by every user and lives in the repository.
     const template = [
       {
-        'Email': 'aaditya.joglek@student.spit.ac.in',
-        'Name': 'Aaditya Ramdas Joglek',
-        'UID': '2021200044',
+        'Email': 'firstname.lastname@example.com',
+        'Name': 'Sample Student',
+        'UID': '2026000001',
         'Branch': 'EXTC',
         'Internship Type': 'Off-Campus',
-        'Company Name': 'Pixelwise Technology',
-        'External Mentor Name': 'Devashish Patwardhan',
-        'Start Date': '2025-01-01',
-        'End Date': '2025-06-30',
-        'Document Link': 'https://drive.google.com/open?id=1Qs1px7_QP-WM_tblTr9RHDMhCF9R_brd',
-        'Status': 'pending',
+        'Company Name': 'Example Technologies',
+        'External Mentor Name': 'Sample Mentor',
+        'Start Date': '2026-01-05',
+        'End Date': '2026-06-30',
+        'Document Link': 'https://example.com/offer-letter.pdf',
         'Company Location': 'Mumbai',
         'Internship Title': 'Software Development Intern',
         'Remarks': '',
-        'Submitted At': new Date().toISOString()
       }
     ];
 

@@ -102,4 +102,4 @@ Newest first. What was built, how it was tested, what broke and how it was fixed
 ## 2026-09-12: Hardening phase 0 (earlier session)
 Roles, year access, rate limiting, lockout, helmet, upload limits, field whitelists, audit
 log, regex escaping, error redaction, Bootstrap removal, error boundary, guarded destructive
-scripts. 40 unit tests. Full detail in `docs/superpowers/plans/2026-09-12-portal-hardening.md`.
+scripts. 40 unit tests. (The original audit plan was archived during the 2026-10-05 repo cleanup; its open items live in `docs/PLAN.md`.)

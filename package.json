@@ -11,8 +11,6 @@
     "install-all": "npm install && cd frontend && npm install",
     "test": "jest",
     "test:watch": "jest --watch",
-    "seed": "node backend/seed.js",
-    "seed-new": "node backend/seed-new.js",
     "seed-user": "node backend/scripts/seed-user.js",
     "set-password": "node backend/scripts/set-password.js",
     "manage-users": "node backend/scripts/manage-users.js",

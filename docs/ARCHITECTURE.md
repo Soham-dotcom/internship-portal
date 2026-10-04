@@ -178,4 +178,4 @@ Severity: 🔴 act now · 🟠 fix soon · 🟡 when convenient.
 | 17 | 🟡 | Repo lives in OneDrive, and cloud-synced `node_modules` causes random `errno -4094` build failures. | environment |
 
 The broader backlog (accessibility, responsive layout, pagination, CI, splitting the 1,200-line
-`AllGroups.js`) is in `docs/superpowers/plans/2026-09-12-portal-hardening.md`.
+`AllGroups.js`) is in `docs/PLAN.md` (phases 3–5).
