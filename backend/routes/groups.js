@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const xlsx = require('xlsx');
 const mongoose = require('mongoose');
-const { getYearDb } = require('../db/connection');
+const { getYearDb, withTransaction } = require('../db/connection');
 const { getInternshipModel } = require('../models/Internship');
 const { getGroupModel } = require('../models/Group');
 const { getMentorModel } = require('../models/Mentor');
@@ -10,6 +10,7 @@ const { getInternalMentorModel } = require('../models/InternalMentor');
 const { containsRegex, exactRegex } = require('../utils/escapeRegex');
 const { requireRole } = require('../middleware/auth');
 const { audit } = require('../middleware/audit');
+const { conflict } = require('../middleware/errorHandler');
 const { randomUUID } = require('crypto');
 
 const getModels = (req) => {
@@ -41,8 +42,8 @@ const shuffle = (input) => {
   return items;
 };
 
-const getExistingGroupNumbers = async (Group) => {
-  const docs = await Group.find({ name: { $regex: /^Group\s+\d+$/ } }).select('name');
+const getExistingGroupNumbers = async (Group, session = null) => {
+  const docs = await Group.find({ name: { $regex: /^Group\s+\d+$/ } }).select('name').session(session);
   const numbers = new Set();
   docs.forEach((doc) => {
     const match = String(doc.name).match(/^Group\s+(\d+)$/);
@@ -51,44 +52,105 @@ const getExistingGroupNumbers = async (Group) => {
   return numbers;
 };
 
-// POST generate student groups with SMART LOGIC and DUPLICATE PREVENTION
-router.post('/generate', async (req, res) => {
-  try {
-    const { Internship, Group } = getModels(req);
-    const {
-      filters = {},
-      groupSize = 5,
-      numGroups = null,
-      randomize = true,
-      assignToGroups = false // If true, actually assign students to groups in DB
-    } = req.body;
+// Unassigned = no group recorded (null, empty, or field missing).
+const UNASSIGNED = {
+  $or: [
+    { assignedGroup: null },
+    { assignedGroup: '' },
+    { assignedGroup: { $exists: false } },
+  ],
+};
 
-    // Build query from filters (all case-insensitive, input escaped)
-    let query = {};
-    const branchMatch = exactRegex(filters.branch);
-    const companyMatch = containsRegex(filters.company);
-    if (branchMatch) query['branch'] = branchMatch;
-    if (companyMatch) query['companyName'] = companyMatch;
+/**
+ * Splits students into groups. Pure: no database access.
+ * Returns { groups } or { error: { status, message, suggestion } }.
+ */
+const planGroups = (students, { groupSize, numGroups, randomize, existingNumbers }) => {
+  const totalStudents = students.length;
+  let finalGroupSize = groupSize;
+  let finalNumGroups = numGroups;
 
-    // CRITICAL: Only select students NOT already assigned to a group
-    query['$or'] = [
-      { assignedGroup: null },
-      { assignedGroup: '' },
-      { assignedGroup: { $exists: false } }
-    ];
+  if (numGroups && groupSize) {
+    // Both given: respect both exactly, or explain why it cannot be done.
+    const requiredStudents = numGroups * groupSize;
+    if (requiredStudents > totalStudents) {
+      return {
+        error: {
+          status: 400,
+          message: `Cannot create ${numGroups} groups with ${groupSize} students each. You only have ${totalStudents} unassigned students. Required: ${requiredStudents}.`,
+          suggestion: `Try ${Math.floor(totalStudents / groupSize)} groups with ${groupSize} students, or reduce group size to ${Math.floor(totalStudents / numGroups)} students per group.`,
+        },
+      };
+    }
+  } else if (numGroups) {
+    // Only the number of groups: spread students evenly.
+    finalNumGroups = Math.min(numGroups, totalStudents);
+    finalGroupSize = Math.ceil(totalStudents / finalNumGroups);
+  } else {
+    // Only the size: as many groups as needed.
+    finalNumGroups = Math.ceil(totalStudents / groupSize);
+  }
 
-    // Get students matching filters
-    const internships = await Internship.find(query);
+  const ordered = randomize ? shuffle(students) : students;
+  const useExactSize = Boolean(numGroups && groupSize);
 
-    if (internships.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'No unassigned students found matching the filters'
+  // Reuse the lowest free "Group N" numbers so names never collide with existing groups.
+  const groupNumbers = [];
+  for (let n = 1; groupNumbers.length < finalNumGroups; n += 1) {
+    if (!existingNumbers.has(n)) groupNumbers.push(n);
+  }
+
+  const groups = [];
+  let index = 0;
+  for (let i = 0; i < finalNumGroups; i += 1) {
+    const size = useExactSize
+      ? finalGroupSize
+      : Math.ceil((totalStudents - index) / (finalNumGroups - i)); // auto-balance the remainder
+    const members = ordered.slice(index, index + size);
+    if (members.length > 0) {
+      groups.push({
+        groupId: generateGroupId(),
+        groupNumber: groupNumbers[i],
+        groupName: `Group ${groupNumbers[i]}`,
+        students: members,
       });
+      index += size;
+    }
+  }
+
+  return { groups };
+};
+
+// POST generate student groups (preview, or save with assignToGroups: true)
+//
+// When saving, everything (reading the unassigned students, naming the groups and
+// both writes) runs in ONE transaction. Before, the students were marked as assigned
+// first and the groups inserted second, so a failure in between left students
+// "assigned" to groups that did not exist, and two people generating at the same
+// moment could put the same student in two groups.
+router.post('/generate', async (req, res, next) => {
+  const {
+    filters = {},
+    groupSize = 5,
+    numGroups = null,
+    randomize = true,
+    assignToGroups = false,
+  } = req.body;
+
+  const query = { ...UNASSIGNED };
+  const branchMatch = exactRegex(filters.branch);
+  const companyMatch = containsRegex(filters.company);
+  if (branchMatch) query.branch = branchMatch;
+  if (companyMatch) query.companyName = companyMatch;
+
+  const run = async (session) => {
+    const { Internship, Group } = getModels(req);
+    const internships = await Internship.find(query).session(session);
+    if (internships.length === 0) {
+      return { error: { status: 404, message: 'No unassigned students found matching the filters' } };
     }
 
-    // Extract unique students
-    const students = internships.map(i => ({
+    const students = internships.map((i) => ({
       _id: i._id,
       name: i.name,
       email: i.email,
@@ -101,145 +163,59 @@ router.post('/generate', async (req, res) => {
       startDate: i.startDate,
       endDate: i.endDate,
       documentLink: i.documentLink,
-      currentlyAssignedGroup: i.assignedGroup
+      currentlyAssignedGroup: i.assignedGroup,
     }));
 
-    // SMART LOGIC: Validate inputs
-    const totalStudents = students.length;
-    let finalGroupSize = groupSize;
-    let finalNumGroups = numGroups;
+    const existingNumbers = assignToGroups ? await getExistingGroupNumbers(Group, session) : new Set();
+    const plan = planGroups(students, { groupSize, numGroups, randomize, existingNumbers });
+    if (plan.error) return plan;
 
-    // Case 1: Both specified - respect BOTH values (user's exact requirements)
-    if (numGroups && groupSize) {
-      const requiredStudents = numGroups * groupSize;
-
-      if (requiredStudents > totalStudents) {
-        // Warning: Not enough students for all groups
-        return res.status(400).json({
-          success: false,
-          message: `Cannot create ${numGroups} groups with ${groupSize} students each. You only have ${totalStudents} unassigned students. Required: ${requiredStudents}.`,
-          suggestion: `Try ${Math.floor(totalStudents / groupSize)} groups with ${groupSize} students, or reduce group size to ${Math.floor(totalStudents / numGroups)} students per group.`
-        });
-      }
-
-      // Respect BOTH user inputs - create exactly numGroups with exactly groupSize students
-      finalNumGroups = numGroups;
-      finalGroupSize = groupSize;
-    } else if (numGroups) {
-      // Only numGroups specified - distribute students evenly
-      finalNumGroups = Math.min(numGroups, totalStudents);
-      finalGroupSize = Math.ceil(totalStudents / finalNumGroups);
-    } else {
-      // Only groupSize specified - create as many full groups as possible
-      finalGroupSize = groupSize;
-      finalNumGroups = Math.ceil(totalStudents / groupSize);
-    }
-
-    // Randomize if requested
-    const orderedStudents = randomize ? shuffle(students) : students;
-
-    const existingGroupNumbers = assignToGroups ? await getExistingGroupNumbers(Group) : new Set();
-
-    const pickNextGroupNumbers = (count, used) => {
-      const picked = [];
-      let n = 1;
-      while (picked.length < count) {
-        if (!used.has(n)) {
-          picked.push(n);
-        }
-        n += 1;
-      }
-      return picked;
-    };
-
-    const groupNumbers = pickNextGroupNumbers(finalNumGroups, existingGroupNumbers);
-
-    // Create groups with EXACT groupSize when both parameters specified
-    const groups = [];
-    let studentIndex = 0;
-    const useExactSize = (numGroups && groupSize); // Both specified - use exact size
-
-    for (let i = 0; i < finalNumGroups; i++) {
-      // Calculate how many students this group should have
-      let studentsForThisGroup;
-
-      if (useExactSize) {
-        // Use EXACT group size specified by user
-        studentsForThisGroup = finalGroupSize;
-      } else {
-        // Auto-balance remaining students across remaining groups
-        const remainingStudents = totalStudents - studentIndex;
-        const remainingGroups = finalNumGroups - i;
-        studentsForThisGroup = Math.ceil(remainingStudents / remainingGroups);
-      }
-
-      const groupId = generateGroupId();
-      const groupStudents = orderedStudents.slice(studentIndex, studentIndex + studentsForThisGroup);
-
-      if (groupStudents.length > 0) {
-        const groupNumber = groupNumbers[i] || (i + 1);
-        groups.push({
-          groupId: groupId,
-          groupNumber: groupNumber,
-          groupName: `Group ${groupNumber}`,
-          students: groupStudents
-        });
-        studentIndex += studentsForThisGroup;
-      }
-    }
-
-    // If assignToGroups is true, update the database
     if (assignToGroups) {
-      const bulkOps = [];
-      const groupDocs = [];
+      const updates = plan.groups.flatMap((group) => group.students.map((student) => ({
+        updateOne: {
+          // Only claim a student who is still unassigned at write time.
+          filter: { _id: student._id, ...UNASSIGNED },
+          update: { $set: { assignedGroup: group.groupId, assignedGroupName: group.groupName } },
+        },
+      })));
 
-      for (const group of groups) {
-        // Create Group document
-        groupDocs.push({
-          name: group.groupName,
-          students: group.students.map(s => s._id),
-          mentor: null
-        });
-
-        // Update internships with group assignments
-        for (const student of group.students) {
-          bulkOps.push({
-            updateOne: {
-              filter: { _id: student._id },
-              update: {
-                $set: {
-                  assignedGroup: group.groupId,
-                  assignedGroupName: group.groupName
-                }
-              }
-            }
-          });
-        }
+      const result = await Internship.bulkWrite(updates, { session });
+      if (result.modifiedCount !== updates.length) {
+        // Someone else assigned some of these students meanwhile. Throwing aborts the
+        // whole transaction, so no partial groups are left behind.
+        throw conflict('Some of these students were just assigned by someone else. Nothing was saved. Please try again.');
       }
 
-      // Save both internship updates and group documents
-      if (bulkOps.length > 0) {
-        await Internship.bulkWrite(bulkOps);
-      }
-
-      if (groupDocs.length > 0) {
-        await Group.insertMany(groupDocs);
-      }
+      await Group.insertMany(plan.groups.map((group) => ({
+        name: group.groupName,
+        students: group.students.map((s) => s._id),
+      })), { session });
     }
 
-    res.json({
+    return { groups: plan.groups, totalStudents: students.length };
+  };
+
+  try {
+    const outcome = assignToGroups ? await withTransaction(run) : await run(null);
+    if (outcome.error) {
+      const { status, ...body } = outcome.error;
+      return res.status(status).json({ success: false, ...body });
+    }
+
+    return res.json({
       success: true,
       data: {
-        groups,
-        totalStudents: students.length,
-        totalGroups: groups.length,
-        assigned: assignToGroups
-      }
+        groups: outcome.groups,
+        totalStudents: outcome.totalStudents,
+        totalGroups: outcome.groups.length,
+        assigned: assignToGroups,
+      },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return next(error);
   }
 });
+
 
 // POST check if student is already in a group
 router.post('/check-assignment', async (req, res) => {
@@ -269,143 +245,127 @@ router.post('/check-assignment', async (req, res) => {
   }
 });
 
-// POST unassign student from group
+const EMPTY_GROUP = {
+  $or: [
+    { students: { $exists: false } },
+    { students: { $size: 0 } },
+    { students: null },
+  ],
+};
+
+/** Sets isAssigned=false on mentors that no remaining group uses. Returns how many changed. */
+const freeUnusedMentors = async (Model, field, Group, mentorIds, session) => {
+  let freed = 0;
+  for (const id of mentorIds) {
+    const stillUsed = await Group.exists({ [field]: id }).session(session);
+    if (!stillUsed) {
+      const result = await Model.updateOne({ _id: id, isAssigned: true }, { $set: { isAssigned: false } }, { session });
+      freed += result.modifiedCount;
+    }
+  }
+  return freed;
+};
+
+// POST unassign students from their groups
+//
+// One transaction: unassign the students, remove them from their groups, delete groups
+// left empty, and free mentors no longer used by any group. Before, a failure halfway
+// could leave a student unassigned but still listed in a group.
 router.post('/unassign', audit('groups.unassign', (req) => ({
   uidCount: Array.isArray(req.body?.uids) ? req.body.uids.length : 0,
-})), async (req, res) => {
+})), async (req, res, next) => {
+  const { uids } = req.body || {};
+  if (!Array.isArray(uids) || uids.length === 0) {
+    return res.status(400).json({ success: false, message: 'Provide the UIDs to unassign' });
+  }
+
   try {
-    const { Internship, Group, Mentor, InternalMentor } = getModels(req);
-    const { uids } = req.body; // Array of UIDs to unassign
+    const result = await withTransaction(async (session) => {
+      const { Internship, Group, Mentor, InternalMentor } = getModels(req);
 
-    // Get the group IDs of students being unassigned
-    const studentsBeingUnassigned = await Internship.find(
-      { uid: { $in: uids }, assignedGroup: { $ne: null, $ne: '' } }
-    ).select('assignedGroup _id');
+      const students = await Internship.find({ uid: { $in: uids }, assignedGroup: { $nin: [null, ''] } })
+        .select('_id')
+        .session(session);
+      const studentIds = students.map((s) => s._id);
 
-    const groupIds = [...new Set(studentsBeingUnassigned.map(s => s.assignedGroup))];
-    const studentIds = studentsBeingUnassigned.map(s => s._id);
-
-    // Unassign students from groups
-    const result = await Internship.updateMany(
-      { uid: { $in: uids } },
-      { $set: { assignedGroup: null, assignedGroupName: null } }
-    );
-
-    // Remove students from Group documents and delete empty groups
-    if (groupIds.length > 0) {
-      // Remove students from groups
-      await Group.updateMany(
-        {},
-        { $pull: { students: { $in: studentIds } } }
+      const unassigned = await Internship.updateMany(
+        { uid: { $in: uids } },
+        { $set: { assignedGroup: null, assignedGroupName: null } },
+        { session }
       );
 
-      // Find groups that will be deleted to free their mentors
-      const groupsToDelete = await Group.find({
-        $or: [
-          { students: { $exists: false } },
-          { students: { $size: 0 } },
-          { students: null }
-        ]
-      }).select('externalMentor internalMentor');
-
-      // Get mentor IDs from groups being deleted
-      const externalMentorIds = groupsToDelete
-        .filter(g => g.externalMentor)
-        .map(g => g.externalMentor);
-      const internalMentorIds = groupsToDelete
-        .filter(g => g.internalMentor)
-        .map(g => g.internalMentor);
-
-      // Delete groups that now have no students
-      const deletedGroups = await Group.deleteMany({
-        $or: [
-          { students: { $exists: false } },
-          { students: { $size: 0 } },
-          { students: null }
-        ]
-      });
-
-      // FREE UP MENTORS: Reset isAssigned to false for mentors whose groups were deleted
-      let freedExternalMentors = 0;
-      let freedInternalMentors = 0;
-      if (externalMentorIds.length > 0) {
-        const mentorUpdate = await Mentor.updateMany(
-          { _id: { $in: externalMentorIds } },
-          { $set: { isAssigned: false } }
-        );
-        freedExternalMentors = mentorUpdate.modifiedCount;
-      }
-      if (internalMentorIds.length > 0) {
-        const internalMentorUpdate = await InternalMentor.updateMany(
-          { _id: { $in: internalMentorIds } },
-          { $set: { isAssigned: false } }
-        );
-        freedInternalMentors = internalMentorUpdate.modifiedCount;
+      if (studentIds.length === 0) {
+        return { count: unassigned.modifiedCount, groupsDeleted: 0, externalFreed: 0, internalFreed: 0 };
       }
 
-      res.json({
-        success: true,
-        message: `Unassigned ${result.modifiedCount} students from their groups`,
-        count: result.modifiedCount,
-        groupsDeleted: deletedGroups.deletedCount,
-        externalMentorsFreed: freedExternalMentors,
-        internalMentorsFreed: freedInternalMentors
-      });
-    } else {
-      res.json({
-        success: true,
-        message: `Unassigned ${result.modifiedCount} students from their groups`,
-        count: result.modifiedCount,
-        groupsDeleted: 0,
-        externalMentorsFreed: 0,
-        internalMentorsFreed: 0
-      });
-    }
+      await Group.updateMany(
+        { students: { $in: studentIds } },
+        { $pull: { students: { $in: studentIds } } },
+        { session }
+      );
+
+      const emptyGroups = await Group.find(EMPTY_GROUP).select('externalMentor internalMentor').session(session);
+      const deleted = await Group.deleteMany({ _id: { $in: emptyGroups.map((g) => g._id) } }, { session });
+
+      const externalIds = emptyGroups.map((g) => g.externalMentor).filter(Boolean);
+      const internalIds = emptyGroups.map((g) => g.internalMentor).filter(Boolean);
+
+      return {
+        count: unassigned.modifiedCount,
+        groupsDeleted: deleted.deletedCount,
+        externalFreed: await freeUnusedMentors(Mentor, 'externalMentor', Group, externalIds, session),
+        internalFreed: await freeUnusedMentors(InternalMentor, 'internalMentor', Group, internalIds, session),
+      };
+    });
+
+    return res.json({
+      success: true,
+      message: `Unassigned ${result.count} students from their groups`,
+      count: result.count,
+      groupsDeleted: result.groupsDeleted,
+      externalMentorsFreed: result.externalFreed,
+      internalMentorsFreed: result.internalFreed,
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return next(error);
   }
 });
 
-// POST clear all groups (delete all Group documents and unassign all students)
-// Admin only: this wipes every group and unassigns every student for the year.
+// POST clear all groups (delete every group, unassign every student, free every mentor)
+// Admin only. One transaction: it either fully happens or not at all.
 router.post(
   '/clear-all',
   requireRole('admin'),
   audit('groups.clear-all'),
-  async (req, res) => {
-  try {
-    const { Internship, Group, Mentor, InternalMentor } = getModels(req);
-    // Delete all Group documents
-    const deletedGroups = await Group.deleteMany({});
+  async (req, res, next) => {
+    try {
+      const result = await withTransaction(async (session) => {
+        const { Internship, Group, Mentor, InternalMentor } = getModels(req);
+        const groups = await Group.deleteMany({}, { session });
+        const students = await Internship.updateMany(
+          { assignedGroup: { $nin: [null, ''] } },
+          { $set: { assignedGroup: null, assignedGroupName: null } },
+          { session }
+        );
+        const external = await Mentor.updateMany({ isAssigned: true }, { $set: { isAssigned: false } }, { session });
+        const internal = await InternalMentor.updateMany({ isAssigned: true }, { $set: { isAssigned: false } }, { session });
+        return { groups, students, external, internal };
+      });
 
-    // Unassign all students from groups
-    const unassignedStudents = await Internship.updateMany(
-      { assignedGroup: { $ne: null, $ne: '' } },
-      { $set: { assignedGroup: null, assignedGroupName: null } }
-    );
-
-    // FREE UP ALL MENTORS: Reset all mentors to unassigned
-    const freedExternalMentors = await Mentor.updateMany(
-      { isAssigned: true },
-      { $set: { isAssigned: false } }
-    );
-    const freedInternalMentors = await InternalMentor.updateMany(
-      { isAssigned: true },
-      { $set: { isAssigned: false } }
-    );
-
-    res.json({
-      success: true,
-      message: 'All groups cleared successfully',
-      groupsDeleted: deletedGroups.deletedCount,
-      studentsUnassigned: unassignedStudents.modifiedCount,
-      externalMentorsFreed: freedExternalMentors.modifiedCount,
-      internalMentorsFreed: freedInternalMentors.modifiedCount
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+      return res.json({
+        success: true,
+        message: 'All groups cleared successfully',
+        groupsDeleted: result.groups.deletedCount,
+        studentsUnassigned: result.students.modifiedCount,
+        externalMentorsFreed: result.external.modifiedCount,
+        internalMentorsFreed: result.internal.modifiedCount,
+      });
+    } catch (error) {
+      return next(error);
+    }
   }
-});
+);
+
 
 // GET all groups (unique Group documents)
 router.get('/list', async (req, res) => {
