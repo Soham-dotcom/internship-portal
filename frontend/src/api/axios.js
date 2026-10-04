@@ -85,6 +85,11 @@ export const updateInternship = (id, data) => {
 
 export const updateMarks = (id, marks) => axiosInstance.put(`/internships/${id}/marks`, marks);
 
+// Recycle Bin (admin only on the server)
+export const getRecycleBin = () => axiosInstance.get('/internships/recycle-bin');
+export const restoreStudent = (id) => axiosInstance.post(`/internships/${id}/restore`);
+export const deleteStudentPermanently = (id) => axiosInstance.delete(`/internships/${id}/permanent`);
+
 export const deleteInternship = (id) => {
   return axiosInstance.delete(`/internships/${id}`);
 };

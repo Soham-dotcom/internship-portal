@@ -14,6 +14,7 @@ import CompanyAnalytics from './pages/CompanyAnalytics';
 import MentorEdit from './pages/MentorEdit';
 import AllGroups from './pages/AllGroups';
 import AllMentors from './pages/AllMentors';
+import RecycleBin from './pages/RecycleBin';
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
           <Route path="/picker" element={<StudentPicker />} />
           <Route path="/analytics" element={<CompanyAnalytics />} />
           <Route path="/mentor-edit" element={<MentorEdit />} />
+          <Route path="/recycle-bin" element={<RecycleBin />} />
         </Route>
       </Routes>
     </Router>

@@ -53,6 +53,8 @@ const navigation = [
     items: [
       { name: 'Data Import Center', href: '/upload' },
       { name: 'Evaluation Marks Import', href: '/evaluation-upload' },
+      // Shown to admins only; the server enforces it regardless.
+      { name: 'Recycle Bin', href: '/recycle-bin', adminOnly: true },
     ],
   },
 ];
@@ -106,7 +108,7 @@ const Layout = ({ children }) => {
                 {section.group}
               </p>
               <ul className="space-y-0.5">
-                {section.items.map((item) => {
+                {section.items.filter((item) => !item.adminOnly || role === 'admin').map((item) => {
                   const active = isActive(item.href);
                   return (
                     <li key={item.name}>
