@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { getYearDb } = require('../db/connection');
 const { getEvaluationSettingsModel } = require('../models/EvaluationSettings');
+const { requireRole } = require('../middleware/auth');
+const { audit } = require('../middleware/audit');
 
 const sanitizeNumber = (value, fallback) => {
   const parsed = Number(value);
@@ -34,7 +36,11 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.put('/', async (req, res) => {
+// Admin only: these weights determine every student's final mark.
+router.put('/', requireRole('admin'), audit('evaluation-settings.update', (req) => ({
+  totalWeeks: req.body?.totalWeeks,
+  weights: req.body?.weights,
+})), async (req, res) => {
   try {
     const EvaluationSettings = getEvaluationSettingsModel(getYearDb(req.year));
     const totalWeeks = sanitizeNumber(req.body.totalWeeks, 8);

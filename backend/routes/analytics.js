@@ -4,6 +4,7 @@ const { getYearDb } = require('../db/connection');
 const { getInternshipModel } = require('../models/Internship');
 const { getGroupModel } = require('../models/Group');
 const { normalizeCompanyName } = require('../utils/companyNormalization');
+const { escapeRegex } = require('../utils/escapeRegex');
 
 // GET company-wise hiring statistics (FIXED - no duplicates)
 router.get('/companies', async (req, res) => {
@@ -256,10 +257,11 @@ router.get('/types', async (req, res) => {
 router.get('/summary', async (req, res) => {
   try {
     const Internship = getInternshipModel(getYearDb(req.year));
+    // NOTE: a `status` breakdown used to be returned here, but the Internship schema
+    // has no `status` field so it always aggregated to a single null bucket.
     const [
       companyStats,
       branchStats,
-      statusStats,
       typeStats
     ] = await Promise.all([
       Internship.aggregate([
@@ -302,25 +304,11 @@ router.get('/summary', async (req, res) => {
         }
       ]),
       Internship.aggregate([
-        { 
-          $group: { 
-            _id: '$status', 
-            uniqueStudents: { $addToSet: '$uid' } 
-          } 
-        },
-        { 
-          $project: { 
-            _id: 1, 
-            count: { $size: '$uniqueStudents' } 
-          } 
-        }
-      ]),
-      Internship.aggregate([
-        { 
-          $group: { 
-            _id: '$internshipType', 
-            uniqueStudents: { $addToSet: '$uid' } 
-          } 
+        {
+          $group: {
+            _id: '$internshipType',
+            uniqueStudents: { $addToSet: '$uid' }
+          }
         },
         { 
           $project: { 
@@ -336,7 +324,6 @@ router.get('/summary', async (req, res) => {
       data: {
         companies: companyStats,
         branches: branchStats,
-        status: statusStats,
         types: typeStats
       }
     });
@@ -352,7 +339,7 @@ router.get('/companies/search', async (req, res) => {
     const { name } = req.query;
     if (!name) return res.json({ success: true, data: [] });
 
-    const query = normalizeCompanyName(name);
+    const query = escapeRegex(normalizeCompanyName(name));
     const companies = await Internship.aggregate([
       {
         $match: {
@@ -400,26 +387,19 @@ router.get('/companies/details/:name', async (req, res) => {
     const [
       students,
       roles,
-      status,
       yearlyPlacements
     ] = await Promise.all([
       // Get all student details
       Internship.find({ standardized_company_name: normalizedCompany })
-        .select('name uid branch internshipTitle status startDate endDate duration stipend'),
-      
+        .select('name uid branch internshipTitle startDate endDate duration stipend'),
+
       // Aggregate roles
       Internship.aggregate([
         { $match: { standardized_company_name: normalizedCompany } },
         { $group: { _id: '$internshipTitle', count: { $sum: 1 } } },
         { $sort: { count: -1 } }
       ]),
-      
-      // Aggregate status
-      Internship.aggregate([
-        { $match: { standardized_company_name: normalizedCompany } },
-        { $group: { _id: '$status', count: { $sum: 1 } } }
-      ]),
-      
+
       // Aggregate yearly trends (if startDate exists)
       Internship.aggregate([
         {
@@ -443,7 +423,6 @@ router.get('/companies/details/:name', async (req, res) => {
         },
         students,
         roles,
-        status,
         yearlyPlacements
       }
     });

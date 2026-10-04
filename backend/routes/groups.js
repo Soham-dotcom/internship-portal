@@ -7,7 +7,10 @@ const { getInternshipModel } = require('../models/Internship');
 const { getGroupModel } = require('../models/Group');
 const { getMentorModel } = require('../models/Mentor');
 const { getInternalMentorModel } = require('../models/InternalMentor');
-const { v4: uuidv4 } = require('crypto').randomUUID ? {} : require('uuid');
+const { containsRegex, exactRegex } = require('../utils/escapeRegex');
+const { requireRole } = require('../middleware/auth');
+const { audit } = require('../middleware/audit');
+const { randomUUID } = require('crypto');
 
 const getModels = (req) => {
   const db = getYearDb(req.year);
@@ -20,8 +23,22 @@ const getModels = (req) => {
 };
 
 // Helper to generate group ID
-const generateGroupId = () => {
-  return typeof uuidv4 === 'function' ? uuidv4() : `group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+const generateGroupId = () => randomUUID();
+
+/**
+ * Fisher-Yates shuffle.
+ *
+ * The previous `sort(() => Math.random() - 0.5)` is not a uniform shuffle — some
+ * students were systematically more likely to be picked than others. For group
+ * formation and random student selection in an academic context, that matters.
+ */
+const shuffle = (input) => {
+  const items = [...input];
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
 };
 
 const getExistingGroupNumbers = async (Group) => {
@@ -46,10 +63,12 @@ router.post('/generate', async (req, res) => {
       assignToGroups = false // If true, actually assign students to groups in DB
     } = req.body;
 
-    // Build query from filters (all case-insensitive)
+    // Build query from filters (all case-insensitive, input escaped)
     let query = {};
-    if (filters.branch) query['branch'] = new RegExp(`^${filters.branch}$`, 'i');
-    if (filters.company) query['companyName'] = new RegExp(filters.company, 'i');
+    const branchMatch = exactRegex(filters.branch);
+    const companyMatch = containsRegex(filters.company);
+    if (branchMatch) query['branch'] = branchMatch;
+    if (companyMatch) query['companyName'] = companyMatch;
 
     // CRITICAL: Only select students NOT already assigned to a group
     query['$or'] = [
@@ -81,8 +100,6 @@ router.post('/generate', async (req, res) => {
       externalMentorName: i.externalMentorName,
       startDate: i.startDate,
       endDate: i.endDate,
-      status: i.status,
-      salary: i.salary,
       documentLink: i.documentLink,
       currentlyAssignedGroup: i.assignedGroup
     }));
@@ -119,9 +136,7 @@ router.post('/generate', async (req, res) => {
     }
 
     // Randomize if requested
-    if (randomize) {
-      students.sort(() => Math.random() - 0.5);
-    }
+    const orderedStudents = randomize ? shuffle(students) : students;
 
     const existingGroupNumbers = assignToGroups ? await getExistingGroupNumbers(Group) : new Set();
 
@@ -159,7 +174,7 @@ router.post('/generate', async (req, res) => {
       }
 
       const groupId = generateGroupId();
-      const groupStudents = students.slice(studentIndex, studentIndex + studentsForThisGroup);
+      const groupStudents = orderedStudents.slice(studentIndex, studentIndex + studentsForThisGroup);
 
       if (groupStudents.length > 0) {
         const groupNumber = groupNumbers[i] || (i + 1);
@@ -255,7 +270,9 @@ router.post('/check-assignment', async (req, res) => {
 });
 
 // POST unassign student from group
-router.post('/unassign', async (req, res) => {
+router.post('/unassign', audit('groups.unassign', (req) => ({
+  uidCount: Array.isArray(req.body?.uids) ? req.body.uids.length : 0,
+})), async (req, res) => {
   try {
     const { Internship, Group, Mentor, InternalMentor } = getModels(req);
     const { uids } = req.body; // Array of UIDs to unassign
@@ -350,7 +367,12 @@ router.post('/unassign', async (req, res) => {
 });
 
 // POST clear all groups (delete all Group documents and unassign all students)
-router.post('/clear-all', async (req, res) => {
+// Admin only: this wipes every group and unassigns every student for the year.
+router.post(
+  '/clear-all',
+  requireRole('admin'),
+  audit('groups.clear-all'),
+  async (req, res) => {
   try {
     const { Internship, Group, Mentor, InternalMentor } = getModels(req);
     // Delete all Group documents
@@ -433,18 +455,20 @@ router.post('/export', async (req, res) => {
 
     const wb = xlsx.utils.book_new();
 
-    // Fetch mentor info for all groups
+    // Fetch mentor info and complete student data for all groups
     const groupsWithMentors = await Promise.all(
       groups.map(async (group) => {
         let internalMentorName = 'Not Assigned';
         let externalMentorName = 'Not Assigned';
         let externalMentorEmail = '';
         let externalMentorPhone = '';
+        let students = group.students || [];
 
         if (group._id) {
           const dbGroup = await Group.findById(group._id)
             .populate('externalMentor', 'name email phone')
-            .populate('internalMentor', 'name');
+            .populate('internalMentor', 'name')
+            .populate('students', 'uid name branch email phone');
 
           if (dbGroup?.internalMentor?.name) {
             internalMentorName = dbGroup.internalMentor.name;
@@ -454,10 +478,14 @@ router.post('/export', async (req, res) => {
             externalMentorEmail = dbGroup.externalMentor.email || '';
             externalMentorPhone = dbGroup.externalMentor.phone || '';
           }
+          if (dbGroup?.students && Array.isArray(dbGroup.students)) {
+            students = dbGroup.students;
+          }
         }
 
         return {
           ...group,
+          students,
           internalMentorName,
           externalMentorName,
           externalMentorEmail,
@@ -480,6 +508,7 @@ router.post('/export', async (req, res) => {
         'UID': student.uid || '',
         'Branch': student.branch || '',
         'Institute Email': student.email || '',
+        'Student Phone': student.phone || '',
         'Internal Mentor Name': group.internalMentorName,
         'External Mentor Name': group.externalMentorName,
         'External Mentor Email': group.externalMentorEmail || '',
@@ -494,6 +523,7 @@ router.post('/export', async (req, res) => {
         { wch: 12 }, // UID
         { wch: 15 }, // Branch
         { wch: 30 }, // Institute Email
+        { wch: 15 }, // Student Phone
         { wch: 22 }, // Internal Mentor Name
         { wch: 22 }, // External Mentor Name
         { wch: 30 }, // External Mentor Email
@@ -533,10 +563,13 @@ router.post('/export-single', async (req, res) => {
     let externalMentorName = 'Not Assigned';
     let externalMentorEmail = '';
     let externalMentorPhone = '';
+    let students = group.students || [];
+    
     if (group._id) {
       const dbGroup = await Group.findById(group._id)
         .populate('externalMentor', 'name email phone')
-        .populate('internalMentor', 'name');
+        .populate('internalMentor', 'name')
+        .populate('students', 'uid name branch email phone');
 
       if (dbGroup?.internalMentor?.name) {
         internalMentorName = dbGroup.internalMentor.name;
@@ -546,14 +579,18 @@ router.post('/export-single', async (req, res) => {
         externalMentorEmail = dbGroup.externalMentor.email || '';
         externalMentorPhone = dbGroup.externalMentor.phone || '';
       }
+      if (dbGroup?.students && Array.isArray(dbGroup.students)) {
+        students = dbGroup.students;
+      }
     }
 
     // EXACT FORMAT: Student info + internal/external mentor details
-    const sheetData = group.students.map((student, index) => ({
+    const sheetData = students.map((student, index) => ({
       'Student Name': student.name || '',
       'UID': student.uid || '',
       'Branch': student.branch || '',
       'Institute Email': student.email || '',
+      'Student Phone': student.phone || '',
       'Internal Mentor Name': internalMentorName,
       'External Mentor Name': externalMentorName,
       'External Mentor Email': externalMentorEmail || '',
@@ -568,6 +605,7 @@ router.post('/export-single', async (req, res) => {
       { wch: 12 }, // UID
       { wch: 15 }, // Branch
       { wch: 30 }, // Institute Email
+      { wch: 15 }, // Student Phone
       { wch: 22 }, // Internal Mentor Name
       { wch: 22 }, // External Mentor Name
       { wch: 30 }, // External Mentor Email
@@ -598,11 +636,14 @@ router.post('/random-pick', async (req, res) => {
       count = 1
     } = req.body;
 
-    // Build query from filters (all case-insensitive)
+    // Build query from filters (all case-insensitive, input escaped).
+    // NOTE: there is deliberately no `status` filter — the Internship schema has no
+    // `status` field, so filtering on it silently returned zero results.
     let query = {};
-    if (filters.branch) query['branch'] = new RegExp(`^${filters.branch}$`, 'i');
-    if (filters.company) query['companyName'] = new RegExp(filters.company, 'i');
-    if (filters.status) query['status'] = new RegExp(`^${filters.status}$`, 'i');
+    const branchMatch = exactRegex(filters.branch);
+    const companyMatch = containsRegex(filters.company);
+    if (branchMatch) query['branch'] = branchMatch;
+    if (companyMatch) query['companyName'] = companyMatch;
 
     // Only pick unassigned students
     query['$or'] = [
@@ -622,8 +663,7 @@ router.post('/random-pick', async (req, res) => {
     }
 
     // Shuffle and pick random students
-    const shuffled = internships.sort(() => Math.random() - 0.5);
-    const picked = shuffled.slice(0, Math.min(count, internships.length));
+    const picked = shuffle(internships).slice(0, Math.min(count, internships.length));
 
     const students = picked.map(i => ({
       name: i.name,
@@ -633,7 +673,6 @@ router.post('/random-pick', async (req, res) => {
       company: i.companyName,
       internshipTitle: i.internshipTitle || 'Intern',
       internshipType: i.internshipType,
-      status: i.status,
       mentor: i.externalMentorName,
       documentLink: i.documentLink
     }));
@@ -668,7 +707,6 @@ router.post('/export-random', async (req, res) => {
       'Company': student.company,
       'Internship Type': student.internshipType,
       'Internship Title': student.internshipTitle,
-      'Status': student.status,
       'External Mentor': student.mentor,
       'Document Link': student.documentLink
     }));
@@ -712,7 +750,7 @@ router.post('/allocate-all-external', async (req, res) => {
     }
 
     // IMPROVED LOGIC: Try to allocate one mentor per group if enough mentors
-    const shuffledMentors = availableMentors.sort(() => Math.random() - 0.5);
+    const shuffledMentors = shuffle(availableMentors);
     const allocations = [];
     let mentorIndex = 0;
 
@@ -842,7 +880,7 @@ router.post('/allocate-all-internal', async (req, res) => {
     }
 
     // IMPROVED LOGIC: Try to allocate one mentor per group if enough mentors
-    const shuffledMentors = availableMentors.sort(() => Math.random() - 0.5);
+    const shuffledMentors = shuffle(availableMentors);
     const allocations = [];
     let mentorIndex = 0;
 
@@ -1004,7 +1042,10 @@ router.get('/search', async (req, res) => {
       return res.json({ success: true, data: [], count: 0 });
     }
 
-    const searchRegex = new RegExp(query, 'i');
+    const searchRegex = containsRegex(query);
+    if (!searchRegex) {
+      return res.json({ success: true, data: [], count: 0 });
+    }
 
     // Find all groups and populate
     const allGroups = await Group.find()
@@ -1317,7 +1358,10 @@ router.put('/:groupId/assign-mentor', async (req, res) => {
 // PUT update group (edit group details)
 router.put('/:id', async (req, res) => {
   try {
-    const { Group } = getModels(req);
+    // Mentor and InternalMentor are used further down when reassigning mentors.
+    // They were previously missing from this destructure, which made every mentor
+    // change through this route throw a ReferenceError and return 500.
+    const { Group, Mentor, InternalMentor } = getModels(req);
     const { id } = req.params;
     const { name, students, externalMentor, internalMentor } = req.body;
 

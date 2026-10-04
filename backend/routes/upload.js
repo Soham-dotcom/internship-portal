@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
+const path = require('path');
 const xlsx = require('xlsx');
 const { getYearDb } = require('../db/connection');
 const { getInternshipModel } = require('../models/Internship');
@@ -8,10 +9,53 @@ const { getMentorModel } = require('../models/Mentor');
 const { getInternalMentorModel } = require('../models/InternalMentor');
 const { getGroupModel } = require('../models/Group');
 const { normalizeCompanyName } = require('../utils/companyNormalization');
+const { requireRole } = require('../middleware/auth');
+const { audit } = require('../middleware/audit');
+const { pickAllowed, rejectedFields, IMPORT_FIELDS } = require('../utils/allowedFields');
 
-// Configure multer for file upload
-const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
+// Configure multer for file upload.
+// Files are held in memory and parsed by SheetJS, so an unbounded upload is a
+// direct route to exhausting the server's memory. A spreadsheet of a few thousand
+// student rows is well under 5MB.
+const ALLOWED_EXTENSIONS = ['.xlsx', '.xls', '.csv'];
+const ALLOWED_MIME_TYPES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'text/csv',
+  'application/octet-stream', // some browsers send this for .xlsx
+];
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB
+    files: 1,
+  },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      return cb(new Error(`Unsupported file type "${ext || 'unknown'}". Upload an .xlsx, .xls or .csv file.`));
+    }
+    if (file.mimetype && !ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+      return cb(new Error('Unsupported file format. Upload an .xlsx, .xls or .csv file.'));
+    }
+    return cb(null, true);
+  },
+});
+
+/**
+ * Turns multer's own errors (size limit, rejected type) into clean 400 responses
+ * instead of letting them fall through as a 500.
+ */
+const handleUpload = (field) => (req, res, next) => {
+  upload.single(field)(req, res, (err) => {
+    if (!err) return next();
+    const message = err.code === 'LIMIT_FILE_SIZE'
+      ? 'File is too large. The maximum upload size is 5MB.'
+      : err.message || 'File upload failed.';
+    return res.status(400).json({ success: false, message });
+  });
+};
 
 const normalizeKey = (value) => String(value || '').trim().toLowerCase();
 
@@ -68,7 +112,7 @@ const getModels = (req) => {
 };
 
 // POST upload Excel file
-router.post('/excel', upload.single('file'), async (req, res) => {
+router.post('/excel', handleUpload('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
@@ -120,7 +164,7 @@ router.post('/excel', upload.single('file'), async (req, res) => {
 });
 
 // POST evaluation: meeting attendance
-router.post('/evaluation/meeting-attendance', upload.single('file'), async (req, res) => {
+router.post('/evaluation/meeting-attendance', handleUpload('file'), async (req, res) => {
   try {
     const { Internship } = getModels(req);
     if (!req.file) {
@@ -195,7 +239,7 @@ router.post('/evaluation/meeting-attendance', upload.single('file'), async (req,
 });
 
 // POST evaluation: weekly reports (merge)
-router.post('/evaluation/weekly-reports', upload.single('file'), async (req, res) => {
+router.post('/evaluation/weekly-reports', handleUpload('file'), async (req, res) => {
   try {
     const { Internship } = getModels(req);
     if (!req.file) {
@@ -290,7 +334,7 @@ router.post('/evaluation/weekly-reports', upload.single('file'), async (req, res
 });
 
 // POST evaluation: final report
-router.post('/evaluation/final-report', upload.single('file'), async (req, res) => {
+router.post('/evaluation/final-report', handleUpload('file'), async (req, res) => {
   try {
     const { Internship } = getModels(req);
     if (!req.file) {
@@ -365,7 +409,7 @@ router.post('/evaluation/final-report', upload.single('file'), async (req, res) 
 });
 
 // POST evaluation: external mentor marks
-router.post('/evaluation/external-marks', upload.single('file'), async (req, res) => {
+router.post('/evaluation/external-marks', handleUpload('file'), async (req, res) => {
   try {
     const { Internship } = getModels(req);
     if (!req.file) {
@@ -433,7 +477,7 @@ router.post('/evaluation/external-marks', upload.single('file'), async (req, res
 });
 
 // POST evaluation: external viva marks
-router.post('/evaluation/external-viva-marks', upload.single('file'), async (req, res) => {
+router.post('/evaluation/external-viva-marks', handleUpload('file'), async (req, res) => {
   try {
     const { Internship } = getModels(req);
     if (!req.file) {
@@ -516,7 +560,7 @@ router.post('/evaluation/external-viva-marks', upload.single('file'), async (req
 });
 
 // POST evaluation: internal viva marks
-router.post('/evaluation/internal-viva-marks', upload.single('file'), async (req, res) => {
+router.post('/evaluation/internal-viva-marks', handleUpload('file'), async (req, res) => {
   try {
     const { Internship } = getModels(req);
     if (!req.file) {
@@ -599,7 +643,9 @@ router.post('/evaluation/internal-viva-marks', upload.single('file'), async (req
 });
 
 // POST import parsed data to MongoDB with UPSERT logic
-router.post('/import', async (req, res) => {
+router.post('/import', audit('internships.bulk-import', (req) => ({
+  recordCount: Array.isArray(req.body?.internships) ? req.body.internships.length : 0,
+})), async (req, res) => {
   try {
     const { Internship } = getModels(req);
     const { internships } = req.body;
@@ -618,6 +664,7 @@ router.post('/import', async (req, res) => {
     let updatedCount = 0;
     let failedCount = 0;
     const errors = [];
+    const blockedFields = [];
 
     // Process each record individually with UPSERT logic
     for (const record of internships) {
@@ -628,13 +675,18 @@ router.post('/import', async (req, res) => {
           continue;
         }
 
-        const standardized_company_name = normalizeCompanyName(record.companyName || '');
-        record.standardized_company_name = standardized_company_name;
+        // Track (but do not apply) any attempt to set marks or group assignment
+        // through a spreadsheet import.
+        blockedFields.push(...rejectedFields(record));
+
+        // Only whitelisted student/company fields survive into the write.
+        const safeRecord = pickAllowed(record, IMPORT_FIELDS);
+        safeRecord.standardized_company_name = normalizeCompanyName(record.companyName || '');
 
         // UPSERT: Update if exists, Insert if new
         const result = await Internship.findOneAndUpdate(
-          { uid: record.uid }, // Find by UID
-          { $set: record },    // Replace ALL fields with new data
+          { uid: safeRecord.uid },
+          { $set: safeRecord },
           {
             new: true,         // Return updated document
             upsert: true,      // Insert if doesn't exist
@@ -660,6 +712,8 @@ router.post('/import', async (req, res) => {
 
     console.log(`✅ Import complete: ${insertedCount} inserted, ${updatedCount} updated, ${failedCount} failed`);
 
+    const uniqueBlocked = [...new Set(blockedFields)];
+
     res.json({
       success: true,
       message: `Processed ${totalProcessed} of ${internships.length} records. ${insertedCount} new, ${updatedCount} updated${failedCount > 0 ? `, ${failedCount} failed` : ''}`,
@@ -667,7 +721,12 @@ router.post('/import', async (req, res) => {
       updated: updatedCount,
       failed: failedCount,
       total: internships.length,
-      errors: errors.length > 0 ? errors.slice(0, 10) : undefined // Show first 10 errors
+      errors: errors.length > 0 ? errors.slice(0, 10) : undefined, // Show first 10 errors
+      // Surfaced so a coordinator understands why a column in their sheet was ignored.
+      ignoredFields: uniqueBlocked.length > 0 ? uniqueBlocked : undefined,
+      ignoredFieldsNote: uniqueBlocked.length > 0
+        ? 'These columns were ignored. Evaluation marks can only be set through the Evaluation Marks Import page.'
+        : undefined,
     });
   } catch (error) {
     console.error('❌ Import error:', error);
@@ -1081,8 +1140,8 @@ router.delete('/mentors/:id', async (req, res) => {
   }
 });
 
-// DELETE all mentors
-router.delete('/mentors', async (req, res) => {
+// DELETE all mentors — admin only, removes the entire external mentor directory.
+router.delete('/mentors', requireRole('admin'), audit('mentors.delete-all-external'), async (req, res) => {
   try {
     const { Mentor, Group } = getModels(req);
     // Check if any mentors are assigned to groups
@@ -1148,8 +1207,8 @@ router.delete('/internal-mentors/:id', async (req, res) => {
   }
 });
 
-// DELETE all INTERNAL mentors
-router.delete('/internal-mentors', async (req, res) => {
+// DELETE all INTERNAL mentors — admin only, removes the entire internal mentor directory.
+router.delete('/internal-mentors', requireRole('admin'), audit('mentors.delete-all-internal'), async (req, res) => {
   try {
     const { InternalMentor, Group } = getModels(req);
     // Check if any mentors are assigned to groups

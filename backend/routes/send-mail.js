@@ -7,6 +7,7 @@ const { getGroupModel } = require('../models/Group');
 const { getMailDraftModel } = require('../models/MailDraft');
 const { getSenderEmailModel } = require('../models/SenderEmail');
 const { decryptString } = require('../utils/crypto');
+const { audit } = require('../middleware/audit');
 
 const router = express.Router();
 
@@ -109,6 +110,7 @@ function buildGroupExcelBuffer(group) {
     'UID': student.uid || '',
     'Branch': student.branch || '',
     'Institute Email': student.email || '',
+    'Student Phone': student.phone || '',
     'Internal Mentor Name': internalMentorName,
     'External Mentor Name': externalMentorName,
     'External Mentor Email': externalMentorEmail,
@@ -121,6 +123,7 @@ function buildGroupExcelBuffer(group) {
     { wch: 12 },
     { wch: 15 },
     { wch: 30 },
+    { wch: 15 },
     { wch: 22 },
     { wch: 22 },
     { wch: 30 },
@@ -135,12 +138,13 @@ function buildGroupExcelBuffer(group) {
 }
 
 async function getGlobalDraft(MailDraft) {
-  const draft = await MailDraft.findOne({ key: 'global' }).select('subject body');
-  if (draft) return { subject: draft.subject, body: draft.body };
+  const draft = await MailDraft.findOne({ key: 'global' }).select('subject body evaluationLink');
+  if (draft) return { subject: draft.subject, body: draft.body, evaluationLink: draft.evaluationLink || '' };
 
   return {
     subject: 'Student Group Details',
     body: `Dear Mentor,\n\nPlease find attached the list of students assigned to your group.\n\nRegards,\nAdministrator`,
+    evaluationLink: '',
   };
 }
 
@@ -171,13 +175,13 @@ async function resolveSenderAuth(SenderEmail, senderEmailId) {
   };
 }
 
-async function sendGroupMail(models, { groupId, recipientType, senderEmailId }) {
+async function sendGroupMail(models, { groupId, recipientType, senderEmailId, evaluationLink: overrideEvaluationLink }) {
   const { Group, MailDraft, SenderEmail } = models;
   console.log('📨 [send-mail] Preparing mail', { groupId, recipientType, senderEmailId: senderEmailId || null });
   const group = await Group.findById(groupId)
     .populate('externalMentor', 'name email phone')
     .populate('internalMentor', 'name email phone')
-    .populate('students', 'uid name branch companyName email');
+    .populate('students', 'uid name branch companyName email phone');
 
   if (!group) {
     const error = new Error('Group not found');
@@ -219,7 +223,31 @@ async function sendGroupMail(models, { groupId, recipientType, senderEmailId }) 
   };
 
   const subject = applyPlaceholders(draft.subject, ctx);
-  const body = applyPlaceholders(draft.body, ctx);
+  const bodyPlain = applyPlaceholders(draft.body, ctx);
+
+  // Determine evaluation link precedence: API-provided override > draft stored link
+  const evaluationLink = overrideEvaluationLink || draft.evaluationLink || '';
+
+  // Simple HTML-safe escape for the body (treat draft.body as plain text)
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  const bodyEscaped = escapeHtml(bodyPlain).replace(/\n/g, '<br>');
+
+  // Append clickable evaluation link if present
+  let htmlBody = bodyEscaped;
+  let textBody = bodyPlain;
+  if (evaluationLink) {
+    const safeLink = escapeHtml(evaluationLink);
+    htmlBody = `${bodyEscaped}<br><br>Evaluation Sheet: <a href="${safeLink}" target="_blank" rel="noopener noreferrer">Click here to open the evaluation sheet</a>`;
+    textBody = `${bodyPlain}\n\nEvaluation Sheet: ${evaluationLink}`;
+  }
 
   const fromEmail = senderAuth?.email || process.env.MAIL_FROM || process.env.SMTP_USER;
   const fileName = `${(group.name || 'Group').replace(/\s+/g, '_')}_students.xlsx`;
@@ -237,7 +265,8 @@ async function sendGroupMail(models, { groupId, recipientType, senderEmailId }) 
     from: fromEmail,
     to: recipientEmail,
     subject,
-    text: body,
+    text: textBody,
+    html: htmlBody,
     attachments: [
       {
         filename: fileName,
@@ -262,9 +291,12 @@ async function sendGroupMail(models, { groupId, recipientType, senderEmailId }) 
 }
 
 // POST /api/send-mail  (body: { groupId, recipientType, senderEmailId })
-router.post('/', async (req, res) => {
+router.post('/', audit('mail.send-group', (req) => ({
+  groupId: req.body?.groupId,
+  recipientType: req.body?.recipientType,
+})), async (req, res) => {
   try {
-    const { groupId, recipientType, senderEmailId } = req.body;
+    const { groupId, recipientType, senderEmailId, evaluationLink } = req.body;
 
     const yearDb = getYearDb(req.year);
     const models = {
@@ -280,7 +312,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ success: false, message: 'groupId is required' });
     }
 
-    const result = await sendGroupMail(models, { groupId, recipientType, senderEmailId });
+    const result = await sendGroupMail(models, { groupId, recipientType, senderEmailId, evaluationLink });
 
     return res.json({
       success: true,
@@ -308,7 +340,7 @@ router.post('/', async (req, res) => {
 router.post('/:groupId', async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { recipientType, senderEmailId } = req.body || {};
+    const { recipientType, senderEmailId, evaluationLink } = req.body || {};
 
     const yearDb = getYearDb(req.year);
     const models = {
@@ -320,7 +352,7 @@ router.post('/:groupId', async (req, res) => {
     console.log('🚀 [send-mail] API HIT POST /api/send-mail/:groupId', { groupId });
     console.log('📦 [send-mail] Body:', JSON.stringify({ recipientType, senderEmailId }, null, 2));
 
-    const result = await sendGroupMail(models, { groupId, recipientType, senderEmailId });
+    const result = await sendGroupMail(models, { groupId, recipientType, senderEmailId, evaluationLink });
 
     return res.json({
       success: true,

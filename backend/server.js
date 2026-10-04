@@ -1,10 +1,17 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const helmet = require('helmet');
 const dotenv = require('dotenv');
 const path = require('path');
 const { connectToMongo } = require('./db/connection');
-const { authRequired } = require('./middleware/auth');
+const { authRequired, requireYearAccess } = require('./middleware/auth');
+const { loginLimiter, apiLimiter } = require('./middleware/rateLimit');
+const {
+  sanitizeServerErrors,
+  notFoundHandler,
+  errorHandler,
+} = require('./middleware/errorHandler');
 
 const internshipRoutes = require('./routes/internships');
 const uploadRoutes = require('./routes/upload');
@@ -36,6 +43,23 @@ if (!process.env.JWT_SECRET) {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Render terminates TLS at its proxy. Without this, express-rate-limit sees every
+// request as coming from the same proxy IP and req.secure is always false.
+app.set('trust proxy', 1);
+
+// This API is consumed by a separate SPA origin and never renders HTML itself,
+// so the restrictive default CSP is safe here.
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  referrerPolicy: { policy: 'no-referrer' },
+}));
+
 // Fail fast when MongoDB is unavailable (prevents 10s buffering timeouts)
 mongoose.set('bufferCommands', false);
 
@@ -66,8 +90,17 @@ const corsOptions = {
 // Middleware
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-app.use(express.json({ limit: '50mb' })); // Increased limit for bulk imports
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Bulk import posts parsed spreadsheet rows as JSON and is legitimately large.
+// Every other endpoint handles a form or a login, which is a few KB at most —
+// keeping the global ceiling low removes a trivial memory-exhaustion vector.
+app.use('/api/upload', express.json({ limit: '25mb' }));
+app.use('/api/upload', express.urlencoded({ extended: true, limit: '25mb' }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+// Redacts 5xx messages in production so driver/schema internals never reach a browser.
+app.use(sanitizeServerErrors);
 
 // Root health check for Render and uptime monitors
 app.get('/', (req, res) => {
@@ -96,10 +129,24 @@ mongoose.connection.on('disconnected', () => {
   console.error('MongoDB disconnected');
 });
 
+// Health check — deliberately registered before the rate limit, database and auth
+// gates so uptime monitors can still reach it when the database is unavailable.
+app.get('/api/health', (req, res) => {
+  const dbConnected = mongoose.connection.readyState === 1;
+  res.status(dbConnected ? 200 : 503).json({
+    status: dbConnected ? 'OK' : 'DEGRADED',
+    database: dbConnected ? 'connected' : 'disconnected',
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.round(process.uptime()),
+  });
+});
+
 // Routes
+app.use('/api', apiLimiter);
+
 // If DB isn't connected, return a clear error quickly (keeps UI responsive)
 app.use('/api', (req, res, next) => {
-  if (req.path === '/health') return next();
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({
       success: false,
@@ -109,8 +156,13 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+app.use('/api/auth/login', loginLimiter);
 app.use('/api/auth', authRoutes);
+
+// Everything past this point requires a valid token, and the academic year in that
+// token must be one the account is actually permitted to open.
 app.use('/api', authRequired);
+app.use('/api', requireYearAccess);
 
 app.use('/api/internships', internshipRoutes);
 app.use('/api/upload', uploadRoutes);
@@ -123,18 +175,36 @@ app.use('/api/mail-draft', mailDraftRoutes);
 app.use('/api/sender-emails', senderEmailsRoutes);
 app.use('/api/evaluation-settings', evaluationSettingsRoutes);
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    message: 'Server is running',
-    environment: process.env.NODE_ENV || 'development',
-    timestamp: new Date().toISOString(),
-    uptimeSeconds: Math.round(process.uptime()),
-  });
-});
+// Unmatched API routes return JSON, never stray HTML.
+app.use('/api', notFoundHandler);
 
-app.listen(PORT, () => {
+// Must stay last: converts anything thrown in a route into a safe JSON response.
+app.use(errorHandler);
+
+const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
+// Without these, one rejected promise anywhere can take the whole process down
+// silently and Render just restarts it with no explanation in the logs.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[uncaughtException]', error);
+  server.close(() => process.exit(1));
+});
+
+const shutdown = (signal) => {
+  console.log(`${signal} received, shutting down gracefully`);
+  server.close(() => {
+    mongoose.connection.close(false).finally(() => process.exit(0));
+  });
+  // Don't hang forever if a connection refuses to drain.
+  setTimeout(() => process.exit(1), 10000).unref();
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 

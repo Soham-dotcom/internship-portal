@@ -57,3 +57,4 @@ const seedDatabase = async () => {
 
 // Run the seed function
 seedDatabase();
+

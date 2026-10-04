@@ -1,5 +1,8 @@
+const { confirmDestructive } = require('./_guard');
+confirmDestructive('drops MongoDB databases');
+
 const mongoose = require('mongoose');
-require('dotenv').config();
+require('dotenv').config({ path: require('path').resolve(__dirname, '../../../.env') });
 
 if (!process.env.MONGODB_URI) {
   console.error('❌ Error: MONGODB_URI not found in environment variables');

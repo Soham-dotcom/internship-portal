@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const { getYearDb } = require('../db/connection');
 const { getInternshipModel } = require('../models/Internship');
+const { containsRegex } = require('../utils/escapeRegex');
+const { audit } = require('../middleware/audit');
+const { pickAllowed, UPDATE_FIELDS } = require('../utils/allowedFields');
 
 // GET mentor's interns
 router.get('/internships', async (req, res) => {
@@ -10,8 +13,9 @@ router.get('/internships', async (req, res) => {
     const { mentorName } = req.query;
     
     let query = {};
-    if (mentorName) {
-      query['externalMentorName'] = new RegExp(mentorName, 'i');
+    const mentorMatch = containsRegex(mentorName);
+    if (mentorMatch) {
+      query['externalMentorName'] = mentorMatch;
     }
 
     const internships = await Internship.find(query);
@@ -22,12 +26,13 @@ router.get('/internships', async (req, res) => {
 });
 
 // PUT update internship by mentor
-router.put('/:id', async (req, res) => {
+router.put('/:id', audit('internships.update', (req) => ({ internshipId: req.params.id })), async (req, res) => {
   try {
     const Internship = getInternshipModel(getYearDb(req.year));
+    // Whitelisted: cannot change UID, evaluation marks, or group assignment.
     const internship = await Internship.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      { $set: pickAllowed(req.body, UPDATE_FIELDS) },
       { new: true, runValidators: true }
     );
     

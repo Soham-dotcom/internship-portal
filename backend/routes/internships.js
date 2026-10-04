@@ -3,6 +3,9 @@ const router = express.Router();
 const { getYearDb } = require('../db/connection');
 const { getInternshipModel } = require('../models/Internship');
 const { getGroupModel } = require('../models/Group');
+const { containsRegex, exactRegex } = require('../utils/escapeRegex');
+const { audit } = require('../middleware/audit');
+const { pickAllowed, CREATE_FIELDS, UPDATE_FIELDS } = require('../utils/allowedFields');
 
 // GET all internships with filters
 router.get('/', async (req, res) => {
@@ -21,12 +24,21 @@ router.get('/', async (req, res) => {
 
     let query = {};
 
-    if (branch) query['branch'] = new RegExp(`^${branch}$`, 'i'); // case-insensitive exact match
-    if (company) query['companyName'] = new RegExp(company, 'i');
-    if (mentor) query['externalMentorName'] = new RegExp(mentor, 'i');
-    if (type) query['internshipType'] = new RegExp(`^${type}$`, 'i'); // case-insensitive exact match
-    if (uid) query['uid'] = new RegExp(uid, 'i');
-    if (name) query['name'] = new RegExp(name, 'i');
+    // All user input is escaped before it reaches a RegExp — an unescaped value like
+    // `(a+)+$` causes catastrophic backtracking, and `.*` would widen the filter.
+    const branchMatch = exactRegex(branch);
+    const typeMatch = exactRegex(type);
+    const companyMatch = containsRegex(company);
+    const mentorMatch = containsRegex(mentor);
+    const uidMatch = containsRegex(uid);
+    const nameMatch = containsRegex(name);
+
+    if (branchMatch) query['branch'] = branchMatch;
+    if (companyMatch) query['companyName'] = companyMatch;
+    if (mentorMatch) query['externalMentorName'] = mentorMatch;
+    if (typeMatch) query['internshipType'] = typeMatch;
+    if (uidMatch) query['uid'] = uidMatch;
+    if (nameMatch) query['name'] = nameMatch;
 
     if (startDate || endDate) {
       query['startDate'] = {};
@@ -120,7 +132,8 @@ router.get('/evaluation-overview', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const Internship = getInternshipModel(getYearDb(req.year));
-    const internship = new Internship(req.body);
+    // Whitelisted: evaluation marks and group assignment are not settable here.
+    const internship = new Internship(pickAllowed(req.body, CREATE_FIELDS));
     await internship.save();
     res.status(201).json({ success: true, data: internship });
   } catch (error) {
@@ -132,9 +145,11 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const Internship = getInternshipModel(getYearDb(req.year));
+    // Whitelisted: a record edit cannot change the UID, evaluation marks, or
+    // group assignment.
     const internship = await Internship.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      { $set: pickAllowed(req.body, UPDATE_FIELDS) },
       { new: true, runValidators: true }
     );
     if (!internship) {
@@ -147,7 +162,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE internship with cascade safety
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', audit('internships.delete', (req) => ({ internshipId: req.params.id })), async (req, res) => {
   try {
     const Internship = getInternshipModel(getYearDb(req.year));
     // Find the student first to get their details
@@ -205,8 +220,14 @@ router.get('/stats/summary', async (req, res) => {
     const totalOffers = await Internship.countDocuments();
     const totalStudents = await Internship.distinct('uid').then(uids => uids.length);
     const totalCompanies = await Internship.distinct('standardized_company_name').then(companies => companies.filter(Boolean).length);
-    const completedInternships = await Internship.countDocuments({ 'status': 'completed' });
-    const pendingApprovals = await Internship.countDocuments({ 'status': 'pending' });
+
+    // These replaced the old `status: completed` / `status: pending` counts, which
+    // always returned 0 because the Internship schema has no `status` field.
+    // Group assignment progress is real, computable, and what coordinators actually track.
+    const assignedToGroups = await Internship.countDocuments({
+      assignedGroup: { $nin: [null, ''] }
+    });
+    const unassignedStudents = totalOffers - assignedToGroups;
 
     const branchWiseCount = await Internship.aggregate([
       {
@@ -230,8 +251,8 @@ router.get('/stats/summary', async (req, res) => {
         totalOffers,
         totalStudents,
         totalCompanies,
-        completedInternships,
-        pendingApprovals,
+        assignedToGroups,
+        unassignedStudents,
         branchWiseCount
       }
     });

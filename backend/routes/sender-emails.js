@@ -2,6 +2,8 @@ const express = require('express');
 const { getSharedDb } = require('../db/connection');
 const { getSenderEmailModel } = require('../models/SenderEmail');
 const { encryptString } = require('../utils/crypto');
+const { requireRole } = require('../middleware/auth');
+const { audit } = require('../middleware/audit');
 
 const router = express.Router();
 
@@ -25,7 +27,10 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/sender-emails
-router.post('/', async (req, res) => {
+// Admin only: stores a mail credential that lets the portal send as that address.
+router.post('/', requireRole('admin'), audit('sender-emails.create', (req) => ({
+  email: String(req.body?.email || '').trim().toLowerCase(),
+})), async (req, res) => {
   try {
     const SenderEmail = getSenderEmailModel(getSharedDb());
     const { email, password } = req.body;

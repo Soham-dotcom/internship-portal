@@ -1,8 +1,11 @@
+const { confirmDestructive } = require('./_guard');
+confirmDestructive('bulk-deletes internship, group and mentor records');
+
 const mongoose = require('mongoose');
-const Internship = require('./models/Internship');
-const Group = require('./models/Group');
-const Mentor = require('./models/Mentor');
-require('dotenv').config();
+const Internship = require('../../models/Internship');
+const Group = require('../../models/Group');
+const Mentor = require('../../models/Mentor');
+require('dotenv').config({ path: require('path').resolve(__dirname, '../../../.env') });
 
 if (!process.env.MONGODB_URI) {
   console.error('❌ Error: MONGODB_URI not found in environment variables');
