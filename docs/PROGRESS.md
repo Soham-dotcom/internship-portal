@@ -2,6 +2,42 @@
 
 Newest first. What was built, how it was tested, what broke and how it was fixed.
 
+## 2026-10-05: Phase 4: smoothness
+
+**Built**
+- **D1 Cold starts:** 60 s timeout, plus a "server is waking up" toast while a request is slow.
+- **D2 Dialogs and toasts:** `ui/feedback.js` + `FeedbackHost`. All 27 native browser dialogs
+  replaced. Type-to-confirm for "delete all evaluators" and permanent delete. Undo toast after
+  moving a student to the Recycle Bin (admins).
+- **D3 Loading and empty states:** skeleton rows on the two big tables; empty-year states on the
+  Dashboard and Company Analytics; real error states with "Try again".
+- **D4 Sessions:** expiry warning 5 minutes ahead; expired or revoked sessions explain themselves
+  and return the user to the same page (open-redirect safe).
+- Phase 3 pushed and verified live (Render redeployed, new pages in the Vercel bundle, CORS
+  accepts the lock-reason header).
+
+**Tested**
+- Backend `npm test`: 158 passing. Frontend unit tests (new): 13 passing (session helpers, dialog
+  store). `CI=true` build clean.
+- **In the real app** (throwaway local replica set): an expired token on `/all-mentors?type=internal`
+  went to sign-in with the explanation and came back to the same URL. "Move to Recycle Bin" →
+  dialog → toast → Undo restored the student. The permanent-delete button stayed disabled until the
+  exact UID was typed, and Escape cancelled. Locking the year used the new dialog. A locked-data
+  edit showed "This data is locked", with "Change anyway" disabled under 5 characters, then saved.
+- Not exercised locally: the cold-start toast (a local server never sleeps) and the empty-year
+  dashboard (test data isn't empty).
+
+**Bugs found and fixed**
+- **The Dashboard and Analytics swallowed load errors**, rendering zeros, which looked exactly like
+  an empty year. They now show the error with "Try again".
+- **A 20 s timeout made every cold start fail**, because Render takes 30–60 s to wake.
+- **Destructive dialogs focused the destructive button**, so Enter would delete. They now focus Cancel.
+- **The "Remove Student Record" button said "permanently… cannot be undone"**, untrue since soft
+  delete. It now reads "Move to Recycle Bin".
+- **My earlier claim that the UI had no student-delete button was wrong.** Corrected in DECISIONS.
+- A retried request copied the original's "slow" flag, which would have miscounted the waking-up
+  notice. Reset on every request.
+
 ## 2026-10-05: Phase 3: lock and trace
 
 **Built**

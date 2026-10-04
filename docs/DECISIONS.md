@@ -5,6 +5,53 @@ Newest first.
 
 ---
 
+## 2026-10-05: In-app dialogs and toasts as a tiny module store
+
+**What.** `ui/feedback.js` exposes `confirmDialog`, `promptDialog` and `toast` as plain async
+functions backed by a 60-line store; `<FeedbackHost/>` (mounted once) renders them. All 27
+`window.confirm/prompt/alert` calls were replaced. Destructive dialogs are red, state their
+consequences, and start with focus on Cancel. Bulk deletes use type-to-confirm.
+
+**Why.** Native dialogs can't explain consequences, can't enforce "type the UID", block the page,
+and look different in each browser. Plain functions, rather than a React context or hook, let code
+outside components use them too, notably the axios interceptor that asks for a lock-override reason.
+
+**Alternatives rejected.** *A UI library (MUI, react-modal):* a large dependency for two dialog
+types. *A React context + hook:* the axios interceptor can't call hooks.
+
+**Safety detail.** If the host isn't mounted, the functions fall back to the native dialogs
+instead of resolving silently. A confirmation can never be skipped by accident.
+
+---
+
+## 2026-10-05: Cold starts: longer timeout + "waking up" notice; keep-warm left to an external pinger
+
+**What.** API timeout raised from 20 s to 60 s, plus a toast while any request has been pending
+for more than 4 s ("The server is waking up…").
+
+**Why.** Render's free tier sleeps after ~15 minutes idle and takes 30–60 s to wake. With a 20 s
+timeout, the first click after a quiet spell *failed*, so the portal looked broken.
+
+**Rejected:** *a GitHub Action pinging every 10 minutes.* Once the repo is private, that's about 4,300
+Actions minutes a month, over the free 2,000. A free external monitor (e.g. UptimeRobot hitting
+`/api/health`) does the same job at no cost; see RUNBOOK. *Paying for Render* removes the problem
+entirely and is the real fix if the budget allows.
+
+---
+
+## 2026-10-05: Session expiry: warn, explain, and return to the same page
+
+**What.** The client reads the token's `exp` (only to *warn*; the server still verifies). A toast
+appears 5 minutes before expiry; at expiry, or on any 401, the user goes to
+`/login?reason=expired&next=<page>` and returns to that page, including its query string, after
+signing in. `safeNextPath` only allows same-app paths, so a crafted `?next=https://…` link can't
+redirect elsewhere (open-redirect protection).
+
+**Why.** Before, a 401 silently dumped the user on the login page and then on the dashboard.
+Half-filled work was lost with no explanation.
+
+---
+
 ## 2026-10-05: Year lock and marks locks, with "admin + reason" overrides
 
 **What.** A `yearsettings` document per academic year holds `locked` and a list of locked marks
@@ -134,8 +181,9 @@ respect it automatically (an integration test checks each path).
 `bulkWrite` callers select targets with a filtered query first. A deleted student's UID stays
 reserved (unique index), so re-adding them means restoring, which is the behaviour we want.
 Only students are soft-deleted. Groups can be regenerated, and mentors are re-importable
-directory data, both covered by backups. There is no student-delete button in the UI; the bin
-is fed by the API and by "undo import".
+directory data, both covered by backups. The bin is fed by Student Record Management's
+"Move to Recycle Bin" button (originally "Remove Student Record"; this entry first said no such
+button existed, which was wrong and was corrected on 2026-10-05) and by "undo import".
 
 ---
 

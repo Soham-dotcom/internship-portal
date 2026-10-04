@@ -47,10 +47,13 @@ mistake · keep it **Smooth** so people don't make mistakes in the first place.
 | A15 | Admin audit-log page | ✅ |
 | A16 | "Last edited by" on records | ✅ as a full per-student History (see DECISIONS) |
 
-### Phase 4: smoothness
-- **D1** Cold-start "waking up" state + keep-warm ping
-- **D2** Dialogs and toasts instead of `confirm()` / `alert()`, Undo toast after delete
-- **D3** Loading skeletons and empty states · **D4** Session-expiry warning, return to the same page
+### Phase 4: smoothness ✅ (2026-10-05)
+| ID | Item | Status |
+|---|---|---|
+| D1 | Cold-start "waking up" state + keep-warm | ✅ notice + 60 s timeout. Keep-warm: external pinger, Soham to set up (RUNBOOK §6) |
+| D2 | Dialogs and toasts; Undo after delete | ✅ all 27 native dialogs replaced |
+| D3 | Loading skeletons and empty states | ✅ plus real error states |
+| D4 | Session-expiry warning, return to the same page | ✅ |
 
 ### Phase 5: everything else
 A9 concurrent-edit protection · A10 MongoDB schema validation · A11 least-privilege DB user

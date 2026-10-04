@@ -93,8 +93,9 @@ The frontend reads `REACT_APP_API_URL` (see `frontend/.env.example`).
 ## Testing
 
 ```bash
-npm test                         # backend: unit + integration tests (in-memory MongoDB)
-cd frontend && npm run build     # frontend must compile
+npm test                                              # backend: unit + integration tests (in-memory MongoDB)
+cd frontend && CI=true npm test -- --watchAll=false   # frontend unit tests
+cd frontend && CI=true npm run build                  # must compile with zero warnings (Vercel uses CI=true)
 ```
 
 The first test run downloads a MongoDB binary for `mongodb-memory-server`.

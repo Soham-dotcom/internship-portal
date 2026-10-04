@@ -121,6 +121,24 @@ Open the student's History: every edit, import and delete/restore, with who, whe
 new value, and the reason if locked data was overridden. It's assembled from the audit log and
 the import records, so there's no separate "last edited by" field to keep in sync.
 
+**Q: Your backend is on a free tier that sleeps. How did you handle that?**
+Two layers. The frontend timeout went from 20 to 60 seconds, because a cold start takes 30–60 s and
+used to *fail*. And if any request has been pending for 4 seconds, a toast says the server is
+waking up, so a slow first click doesn't look like a crash. Keeping it awake is a separate
+choice: an external uptime monitor costs nothing; paying for the instance removes the problem.
+
+**Q: How do you do confirmation dialogs in React without a library?**
+A tiny store with plain async functions, `await confirmDialog({...})`, plus one host component that
+renders whatever is open. Being plain functions, my axios interceptor can use them too. It's
+accessible (focus trap, Escape, focus returns), destructive dialogs start on Cancel, and if the
+host isn't mounted it falls back to the browser's native confirm, so a confirmation is never
+silently skipped.
+
+**Q: Any security issue in "redirect back after login"?**
+Yes, open redirect: `/login?next=https://evil.com` would bounce a user to a phishing page after a
+real sign-in. `safeNextPath` only accepts same-app paths: it must start with "/", not "//", and
+not point back to /login. It's unit-tested.
+
 ## Failure cases and scaling
 
 **Q: What happens if the database goes down?**

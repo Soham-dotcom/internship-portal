@@ -87,7 +87,19 @@ In the portal, as an admin: **Locks & Finalisation**.
   old → new, and any lock-override reason.
 - **Everything:** *Audit Log* (admin). Filter by action (e.g. `marks`), user, student UID or dates.
 
-## 6. If an account may be compromised
+## 6. Keeping the server awake (optional)
+
+Render's free tier sleeps after about 15 minutes without traffic, and the first request then takes
+30–60 s. The portal shows a "server is waking up" message, but you can avoid the wait:
+
+1. Create a free account at uptimerobot.com (or any uptime monitor).
+2. Add an **HTTP(s)** monitor for `https://internship-portal-bmfy.onrender.com/api/health`, every 5 minutes.
+3. You also get an email if the portal goes down.
+
+A GitHub Action is not used for this: on a private repo it would use more Actions minutes than the
+free allowance. Upgrading the Render instance removes sleeping altogether.
+
+## 7. If an account may be compromised
 1. `set-status <username> disabled`: they are cut off immediately.
 2. Check what they did: *Audit Log* page, filter by their username (or Atlas → `spit-common.auditlogs`).
 3. If data was damaged, restore it (section 2).
