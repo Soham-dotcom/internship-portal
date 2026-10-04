@@ -6,6 +6,8 @@ const { getGroupModel } = require('../models/Group');
 const { containsRegex, exactRegex } = require('../utils/escapeRegex');
 const { audit } = require('../middleware/audit');
 const { pickAllowed, CREATE_FIELDS, UPDATE_FIELDS } = require('../utils/allowedFields');
+const { validateMarksUpdate, MARK_FIELDS } = require('../utils/marks');
+const mongoose = require('mongoose');
 
 // GET all internships with filters
 router.get('/', async (req, res) => {
@@ -142,7 +144,10 @@ router.post('/', async (req, res) => {
 });
 
 // PUT update internship
-router.put('/:id', async (req, res) => {
+router.put('/:id', audit('internships.update', (req) => ({
+  internshipId: req.params.id,
+  fields: Object.keys(pickAllowed(req.body, UPDATE_FIELDS)),
+})), async (req, res) => {
   try {
     const Internship = getInternshipModel(getYearDb(req.year));
     // Whitelisted: a record edit cannot change the UID, evaluation marks, or
@@ -158,6 +163,47 @@ router.put('/:id', async (req, res) => {
     res.json({ success: true, data: internship });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// PUT update one student's evaluation marks.
+// The only route that edits marks one student at a time. Every change is recorded
+// in the audit log with the old and new value, so "who changed this mark, and
+// from what?" always has an answer.
+router.put('/:id/marks', audit('internships.marks-update', (req, res) => res.locals.auditDetails || {
+  internshipId: req.params.id,
+}), async (req, res, next) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid student id' });
+    }
+
+    const { value, error } = validateMarksUpdate(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
+    const Internship = getInternshipModel(getYearDb(req.year));
+    const fields = Object.keys(value);
+    const before = await Internship.findById(req.params.id).select(['uid', ...fields].join(' ')).lean();
+    if (!before) {
+      return res.status(404).json({ success: false, message: 'Student not found' });
+    }
+
+    const updated = await Internship.findByIdAndUpdate(
+      req.params.id,
+      { $set: value },
+      { new: true, runValidators: true }
+    ).select(['uid', 'name', ...MARK_FIELDS].join(' '));
+
+    const changes = fields
+      .filter((field) => before[field] !== value[field])
+      .map((field) => ({ field, from: before[field] ?? null, to: value[field] }));
+    res.locals.auditDetails = { internshipId: req.params.id, uid: before.uid, changes };
+
+    return res.json({ success: true, data: updated, changed: changes.length });
+  } catch (error) {
+    return next(error);
   }
 });
 
