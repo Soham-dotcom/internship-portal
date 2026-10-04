@@ -57,6 +57,6 @@ mistake · keep it **Smooth** so people don't make mistakes in the first place.
 
 ### Phase 5: everything else
 A9 concurrent-edit protection · A10 MongoDB schema validation · A11 least-privilege DB user
-· A12 type-to-confirm · B2 user-management page · B4 change-password page · B6 httpOnly
+· ~~A12 type-to-confirm~~ (done in phase 4) · B2 user-management page · B4 change-password page · B6 httpOnly
 cookie / 2FA · C1–C5 privacy (field projection, export audit, log redaction, `xlsx` upgrade,
 retention) · D5–D7 speed, stale-request cancelling, mobile · E CI and a staging database.
