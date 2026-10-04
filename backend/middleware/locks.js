@@ -87,7 +87,11 @@ const enforceYearLock = async (req, res, next) => {
     if (!settings.locked) return next();
 
     const refusal = lockDecision(req, `Academic year ${req.year}`);
-    if (refusal) return res.status(423).json({ success: false, ...refusal });
+    if (refusal) {
+      // Attempts to change locked data are worth knowing about too.
+      recordAudit(req, res, 'lock.refused', { lock: 'year' });
+      return res.status(423).json({ success: false, ...refusal });
+    }
 
     recordAudit(req, res, 'lock.override', { lock: 'year' });
     return next();

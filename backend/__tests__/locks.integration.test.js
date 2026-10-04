@@ -111,6 +111,10 @@ describe('year lock', () => {
     expect((await Internship.findById(student._id).lean()).name).toBe('Asha');
 
     expect((await as('staff').get('/api/internships')).status).toBe(200);
+
+    const refused = await waitForAudit({ action: 'lock.refused' });
+    expect(refused.actorUsername).toBe('test-staff');
+    expect(refused.success).toBe(false);
   });
 
   it('when locked: previews and exports are still allowed', async () => {
