@@ -38,6 +38,10 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Why it is built this way:
   before anything is saved. Existing students are untouched unless you choose to update them,
   blank cells never erase data, and the last import can be undone.
 - **All-or-nothing:** marks imports and multi-step group operations either fully apply or change nothing.
+- **Locks:** an admin can lock a finished year, or individual marks components. Staff can then
+  only read; an admin can still correct data, but must give a reason, which is recorded.
+- **Traceability:** every change is in the audit log (admin page with filters), and each
+  student has a History showing who changed what, when, from what, to what.
 - **Backups:** nightly encrypted backup via GitHub Actions, with a tested restore. See
   [docs/RUNBOOK.md](docs/RUNBOOK.md).
 

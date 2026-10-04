@@ -103,6 +103,24 @@ and missing dates as *today's date*. Our real sheet has no date columns, so ever
 silently reset every student's internship dates. The preview made it visible: every row showed
 up as "changed". The fix: only send cells that actually have values.
 
+**Q: How do you stop finished results being changed?**
+An admin can lock the whole year, or a single marks component. One Express middleware refuses
+every write to a locked year with HTTP 423 "Locked". It's default-deny, with a short explicit
+list of read-only POSTs like exports and previews. Staff simply can't. An admin can, but only by
+sending a reason in a header; the reason goes into the audit log. In the browser, an axios
+interceptor turns that 423 into a "why are you changing this?" prompt and retries the request,
+so no page needed lock-specific code.
+
+**Q: Why 423 and not 403?**
+403 means "you're never allowed to do this". 423 means "this resource is locked right now". The
+frontend needs that difference: for a 423 that asks for a reason it prompts the admin; for a 403
+it just shows the error.
+
+**Q: How would you answer "who changed this student's mark"?**
+Open the student's History: every edit, import and delete/restore, with who, when, old value,
+new value, and the reason if locked data was overridden. It's assembled from the audit log and
+the import records, so there's no separate "last edited by" field to keep in sync.
+
 ## Failure cases and scaling
 
 **Q: What happens if the database goes down?**

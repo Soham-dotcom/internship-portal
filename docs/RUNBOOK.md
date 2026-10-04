@@ -70,8 +70,25 @@ data unless you explicitly ask it to.
 Role, status and year changes apply on the user's **next request**: no need to wait for
 their session to expire. A password reset also signs them out everywhere.
 
-## 4. If an account may be compromised
+## 4. Finalising a year (locks)
+
+In the portal, as an admin: **Locks & Finalisation**.
+- **Lock each marks component** once its sheet has been verified (for example, industry
+  evaluator marks after cross-checking). Other components stay editable.
+- **Lock the year** once results are published. Staff can then only read; every page shows a banner.
+- **Correcting locked data:** just make the edit as an admin. The portal asks for a reason,
+  saves the change, and records the reason in the audit log.
+- **Unlocking** (year or a component) also asks for a reason. Prefer a single reasoned correction
+  over unlocking.
+
+## 5. Investigating a change
+
+- **One student:** *Marks & Evaluation → History* on their row shows every change: who, when,
+  old → new, and any lock-override reason.
+- **Everything:** *Audit Log* (admin). Filter by action (e.g. `marks`), user, student UID or dates.
+
+## 6. If an account may be compromised
 1. `set-status <username> disabled`: they are cut off immediately.
-2. Check what they did: Atlas → `spit-common.auditlogs`, filter by `actorUsername`.
+2. Check what they did: *Audit Log* page, filter by their username (or Atlas → `spit-common.auditlogs`).
 3. If data was damaged, restore it (section 2).
 4. Reset their password, then re-enable.

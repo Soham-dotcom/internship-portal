@@ -79,6 +79,7 @@ data lives in `spit-common`.
 | `mentors` / `internalmentors` | year | name, email, phone, `isAssigned` flag | Yes (contact PII) |
 | `maildrafts` | year | one `global` subject/body template + evaluation link | No |
 | `importbatches` | year | one per applied student import: inserted ids + every changed field (old/new) — powers "Undo last import" | Contains changed values |
+| `yearsettings` | year | year lock + locked marks components (who/when/why) | Integrity-critical |
 | `evaluationsettings` | year | `totalWeeks` + six weights | Integrity-critical (drives every final mark) |
 | `users` | common | username, bcrypt hash, `role` (admin/staff), `allowedYears`, lockout counters | Credentials |
 | `senderemails` | common | sender address + **AES-256-GCM encrypted** SMTP app password | Secret |
@@ -150,6 +151,11 @@ first (unless `--drop` + explicit flag). See `docs/RUNBOOK.md`.
   and locked per account. helmet sits on the API and security headers on Vercel. 5xx messages
   are redacted in production.
 - Destructive one-off scripts are quarantined in `backend/scripts/dangerous/` behind a guard.
+- **Locks:** `enforceYearLock` refuses writes to a locked year (423); marks routes check per-component
+  locks. Staff are refused; admins proceed only with an `X-Lock-Override-Reason`, which is audited.
+- **Audit:** every write route records actor, role, IP, status and a PII-light summary; edits carry
+  old → new values. Sign-in attempts and refused lock attempts are recorded. Admins search it at
+  `/audit-log`; any user can see one student's History.
 
 ## 7. Known issues (review of 2026-10-04, updated 2026-10-05)
 
@@ -168,7 +174,7 @@ Severity: 🔴 act now · 🟠 fix soon · 🟡 when convenient.
 | 7 | ✅ | *Fixed 2026-10-05 (transaction).* Group generation writes internships, then groups, without a transaction. A failure in between (e.g. duplicate group name in a concurrent run) leaves students flagged as assigned with no group. | `groups.js:197-235` |
 | 8 | 🟠 | `PUT /groups/:id` can overwrite `students[]` and `name` without updating `Internship.assignedGroup*`. Renaming a group breaks the evaluation-overview join. | `groups.js:1359` |
 | 9 | 🟠 | Bulk mentor allocation **reuses mentors** when there are fewer mentors than groups. The manual assign route forbids exactly that (409). | `groups.js:729,859` |
-| 10 | 🟠 | Single mentor deletes and `POST /send-mail/:groupId` are **not audited**. (Marks imports and single-student mark edits now are, with old → new values.) | `upload.js`, `send-mail.js` |
+| 10 | ✅ | *Fixed 2026-10-05: every write route is audited, with old → new values on edits.* | |
 | 11 | 🟡 | `/analytics/stipends` uses `$toDouble`, which throws on values like `-` (17 rows in real data). The endpoint is unused by the UI. | `analytics.js:171` |
 | 12 | ✅ | *Fixed 2026-10-05: the import plan classifies rows explicitly.* Import counts "inserted" vs "updated" by comparing `createdAt`/`updatedAt` within 1 s, which is a heuristic and can be wrong. | `upload.js:695` |
 | 13 | 🟡 | Two mentor APIs (`/api/mentors` and `/api/upload/mentors*`) do the same work. N+1 queries in `buildMentorDetails`. | `mentors.js`, `upload.js` |

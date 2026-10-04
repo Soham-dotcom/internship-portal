@@ -38,10 +38,14 @@ mistake · keep it **Smooth** so people don't make mistakes in the first place.
 | A8 | Transactions for multi-step writes | ✅ generate, unassign, clear-all, permanent delete |
 | A2 | Undo last import | ✅ per-import record, not a whole-collection snapshot (see DECISIONS) |
 
-### Phase 3: lock and trace
-- **A4** Year lock (D2) · **A5** Marks lock (D4)
-- **A14** Audit before → after values for all edits; cover imports, single deletes, mail sends
-- **A15** Admin audit-log page · **A16** "Last edited by … at …" on records
+### Phase 3: lock and trace ✅ (2026-10-05)
+| ID | Item | Status |
+|---|---|---|
+| A4 | Year lock (D2): staff refused, admin needs a recorded reason | ✅ |
+| A5 | Per-component marks locks (D4) | ✅ |
+| A14 | Audit old → new values; cover every write route | ✅ incl. sign-ins and refused lock attempts |
+| A15 | Admin audit-log page | ✅ |
+| A16 | "Last edited by" on records | ✅ as a full per-student History (see DECISIONS) |
 
 ### Phase 4: smoothness
 - **D1** Cold-start "waking up" state + keep-warm ping

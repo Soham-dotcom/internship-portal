@@ -2,6 +2,34 @@
 
 Newest first. What was built, how it was tested, what broke and how it was fixed.
 
+## 2026-10-05: Phase 3: lock and trace
+
+**Built**
+- **A4 Year lock** and **A5 marks locks** (`middleware/locks.js`, `routes/year-settings.js`,
+  admin page *Locks & Finalisation*). Staff are refused (423). Admins are prompted for a reason,
+  which is audited. A banner shows on every page while the year is locked.
+- **A14 Audit coverage:** 16 previously unaudited write routes, sign-in attempts, old → new
+  values on record edits, `lock.override` / `lock.refused` entries.
+- **A15 Audit Log page** (admin) with filters and pagination. **A16 Student History**
+  popup on the Marks & Evaluation page.
+- Repository cleanup (37 files removed, archived locally), and the student CSV purged from all
+  git history. Pushed by Soham; Render and Vercel verified running the new code.
+
+**Tested**
+- `npm test`: 158 tests, all passing (16 suites). New: locks (year + marks, staff/admin/reason,
+  previews still allowed when locked, refused attempts audited), history and audit-log search,
+  driven through the real routes.
+- **In the real app** (throwaway local replica set, test accounts): admin locked "Industry
+  evaluator marks" and the year from the new page. The banner appeared. An admin name edit
+  triggered the reason prompt and saved. History showed who, when, the reason and old → new.
+  Staff saw the read-only banner, got a clear refusal with no prompt, and data was unchanged.
+  The Audit Log filtered by action and showed the override reason.
+
+**Bugs found and fixed**
+- Refused attempts on a locked year were not audited: the lock middleware answered before the
+  route's audit step. Now logged as `lock.refused`. Found while checking the Audit Log page.
+- Success message said "Saved marks" when only a name changed.
+
 ## 2026-10-05: Phase 2: making mistakes recoverable
 
 **Built**

@@ -5,6 +5,55 @@ Newest first.
 
 ---
 
+## 2026-10-05: Year lock and marks locks, with "admin + reason" overrides
+
+**What.** A `yearsettings` document per academic year holds `locked` and a list of locked marks
+components. One middleware (`enforceYearLock`) refuses every write to a locked year. Marks routes
+also call `ensureMarksWritable(fields)`. Locked + staff → **423 Locked**. Locked + admin →
+allowed only with a reason in the `X-Lock-Override-Reason` header, recorded in the audit log.
+The frontend's axios interceptor turns a 423 that asks for a reason into a prompt, then retries
+the same request, so no page needed its own lock code.
+
+**Why.** Decisions D2 and D4. Once results are published, the risk is not a malicious user but
+an honest mistake months later. A lock turns "be careful" into "you can't, unless you're an admin
+and say why", and every override carries a reason in the audit trail.
+
+**Alternatives rejected.**
+- *Checking the lock inside every route:* ~40 write routes and easy to miss one. The middleware
+  is default-deny for writes, with a short explicit list of read-only POSTs (exports, previews).
+- *Admin overrides without a reason:* that would make the lock meaningless for the one role
+  that can bypass it.
+- *A separate "unlock, edit, re-lock" flow:* three steps, and people forget the third.
+  Per-request reasons keep the year locked.
+
+**Trade-offs.** One extra small read per write request (the settings document). The 423 status
+("Locked", from WebDAV) is less common than 403, but describes exactly this situation, and lets
+the frontend tell "you can never do this" (403) apart from "this is frozen" (423). Refused
+attempts are audited as `lock.refused`.
+
+---
+
+## 2026-10-05: Full audit coverage; history is read from the audit log
+
+**What.** Every route that changes data now writes an audit entry (16 didn't), including sign-in
+attempts (never passwords). Record edits store each changed field's old and new value. An admin
+Audit Log page searches by action, user, student UID and date. A per-student **History** combines
+the audit log with import records into one timeline.
+
+**Why.** "Who changed this mark, and from what?" must always have an answer, especially once
+more than one person can write.
+
+**Alternatives rejected.** *A `lastEditedBy`/`lastEditedAt` field on each student* (the original
+plan item A16) only shows the *last* change, and every write path, including bulk writes, would
+have to remember to set it. Reading the history from the audit log gives the full trail with no
+extra writes.
+
+**Trade-offs.** History only goes back to when auditing was switched on (this deploy); earlier
+changes are invisible. The audit log grows without limit. At this portal's scale (a few thousand
+entries a year) that's fine, and a retention rule is listed in PLAN phase 5 (C5).
+
+---
+
 ## 2026-10-05: Repository cleanup and removing student data from history
 
 **What.** Removed 37 files that deployment and development don't need: 17 overlapping or stale
