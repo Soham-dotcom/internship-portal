@@ -3,16 +3,18 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const xlsx = require('xlsx');
-const { getYearDb } = require('../db/connection');
+const mongoose = require('mongoose');
+const { getYearDb, withTransaction } = require('../db/connection');
 const { getInternshipModel } = require('../models/Internship');
+const { getImportBatchModel } = require('../models/ImportBatch');
 const { getMentorModel } = require('../models/Mentor');
 const { getInternalMentorModel } = require('../models/InternalMentor');
 const { getGroupModel } = require('../models/Group');
 const { normalizeCompanyName } = require('../utils/companyNormalization');
 const { requireRole } = require('../middleware/auth');
 const { audit } = require('../middleware/audit');
-const { pickAllowed, rejectedFields, IMPORT_FIELDS } = require('../utils/allowedFields');
 const { MARKS_IMPORTS, UID_COLUMNS, planMarksImport } = require('../utils/marksImport');
+const { planStudentImport, normalize } = require('../utils/studentImport');
 
 // Configure multer for file upload.
 // Files are held in memory and parsed by SheetJS, so an unbounded upload is a
@@ -101,6 +103,7 @@ const getModels = (req) => {
     Mentor: getMentorModel(db),
     InternalMentor: getInternalMentorModel(db),
     Group: getGroupModel(db),
+    ImportBatch: getImportBatchModel(db),
   };
 };
 
@@ -346,97 +349,271 @@ router.post('/evaluation/weekly-reports', handleUpload('file'), audit('marks-imp
   }
 });
 
-// POST import parsed data to MongoDB with UPSERT logic
-router.post('/import', audit('internships.bulk-import', (req) => ({
+// Turns a sheet row into the values the database would store, or explains why it can't.
+const castStudent = (Internship) => (record) => {
+  const doc = new Internship(record);
+  const invalid = doc.validateSync(Object.keys(record));
+  if (invalid) {
+    const reasons = Object.values(invalid.errors).map((e) => (
+      e.kind === 'enum'
+        ? `${e.path} "${e.value}" is not one of the allowed values`
+        : `${e.path} "${e.value}" is not a valid ${String(e.kind).toLowerCase()}`
+    ));
+    return { values: null, error: reasons.join('; ') };
+  }
+  return { values: Object.fromEntries(Object.keys(record).map((key) => [key, doc.get(key)])), error: null };
+};
+
+const IMPORT_LIST_LIMIT = 200;
+const summarizeRows = (rows) => rows.slice(0, IMPORT_LIST_LIMIT).map(({ row, uid, name, diffs }) => (
+  diffs ? { row, uid, name, diffs } : { row, uid, name }
+));
+
+// POST import student records
+//
+//   { internships: [...], mode: 'add-only' | 'update', dryRun: true|false, acceptErrors }
+//
+// Always preview first (dryRun: true): it reports new students, existing students
+// whose details differ (field by field, before → after), unchanged rows, students
+// in the Recycle Bin, and rows with errors, without writing anything. Applying
+// (dryRun: false) recomputes the same plan and writes it in ONE transaction,
+// together with an ImportBatch record that makes the import undoable.
+//
+// "add-only" (default) never modifies existing students. Blank cells never erase data.
+router.post('/import', audit('internships.bulk-import', (req, res) => res.locals.auditDetails || {
   recordCount: Array.isArray(req.body?.internships) ? req.body.internships.length : 0,
-})), async (req, res) => {
-  try {
+}), async (req, res, next) => {
+  const { internships, mode = 'add-only', dryRun = false, acceptErrors = false } = req.body || {};
+
+  if (!Array.isArray(internships) || internships.length === 0) {
+    return res.status(400).json({ success: false, message: 'No student records were sent.' });
+  }
+  if (!['add-only', 'update'].includes(mode)) {
+    return res.status(400).json({ success: false, message: 'mode must be "add-only" or "update".' });
+  }
+
+  // The standardized company name is always derived here, never trusted from the client.
+  const records = internships.map((record) => {
+    const { standardized_company_name: ignored, ...rest } = record || {};
+    return rest.companyName ? { ...rest, standardized_company_name: normalizeCompanyName(rest.companyName) } : rest;
+  });
+  const uids = [...new Set(records.map((r) => String(r.uid ?? '').trim()).filter(Boolean))];
+
+  const buildPlan = async (session) => {
     const { Internship } = getModels(req);
-    const { internships } = req.body;
+    const [active, binnedDocs] = await Promise.all([
+      Internship.find({ uid: { $in: uids } }).lean().session(session),
+      Internship.find({ uid: { $in: uids }, deletedAt: { $ne: null } })
+        .setOptions({ withDeleted: true })
+        .select('uid')
+        .lean()
+        .session(session),
+    ]);
+    return planStudentImport(records, {
+      existing: new Map(active.map((doc) => [doc.uid, doc])),
+      binned: new Set(binnedDocs.map((doc) => doc.uid)),
+      cast: castStudent(Internship),
+      mode,
+    });
+  };
 
-    console.log('📥 Import request received');
-    console.log('📊 Data type:', typeof internships);
-    console.log('📊 Is Array:', Array.isArray(internships));
-    console.log('📊 Count:', internships?.length || 0);
+  const summary = (plan) => ({
+    total: records.length,
+    new: plan.toInsert.length,
+    changed: plan.toUpdate.length + plan.changedButSkipped.length,
+    willUpdate: plan.toUpdate.length,
+    unchanged: plan.unchanged.length,
+    inRecycleBin: plan.inRecycleBin.length,
+    errors: plan.errors.length,
+  });
 
-    if (!internships || !Array.isArray(internships)) {
-      console.error('❌ Invalid data format:', typeof internships);
-      return res.status(400).json({ success: false, message: 'Invalid data format' });
+  try {
+    if (dryRun) {
+      const plan = await buildPlan(null);
+      return res.json({
+        success: true,
+        dryRun: true,
+        mode,
+        summary: summary(plan),
+        newStudents: summarizeRows(plan.toInsert),
+        changedStudents: summarizeRows([...plan.toUpdate, ...plan.changedButSkipped]),
+        inRecycleBin: summarizeRows(plan.inRecycleBin),
+        errors: plan.errors.slice(0, IMPORT_LIST_LIMIT),
+        ignoredFields: plan.ignoredFields,
+      });
     }
 
-    let insertedCount = 0;
-    let updatedCount = 0;
-    let failedCount = 0;
-    const errors = [];
-    const blockedFields = [];
+    const outcome = await withTransaction(async (session) => {
+      const { Internship, ImportBatch } = getModels(req);
+      const plan = await buildPlan(session);
 
-    // Process each record individually with UPSERT logic
-    for (const record of internships) {
-      try {
-        if (!record.uid) {
-          failedCount++;
-          errors.push('Missing UID - record skipped');
-          continue;
-        }
-
-        // Track (but do not apply) any attempt to set marks or group assignment
-        // through a spreadsheet import.
-        blockedFields.push(...rejectedFields(record));
-
-        // Only whitelisted student/company fields survive into the write.
-        const safeRecord = pickAllowed(record, IMPORT_FIELDS);
-        safeRecord.standardized_company_name = normalizeCompanyName(record.companyName || '');
-
-        // UPSERT: Update if exists, Insert if new
-        const result = await Internship.findOneAndUpdate(
-          { uid: safeRecord.uid },
-          { $set: safeRecord },
-          {
-            new: true,         // Return updated document
-            upsert: true,      // Insert if doesn't exist
-            runValidators: false // Allow empty fields
-          }
-        );
-
-        // Check if it was an insert or update
-        if (result.createdAt && result.updatedAt &&
-          Math.abs(new Date(result.createdAt) - new Date(result.updatedAt)) < 1000) {
-          insertedCount++;
-        } else {
-          updatedCount++;
-        }
-      } catch (error) {
-        console.error(`❌ Error processing UID ${record.uid}:`, error.message);
-        failedCount++;
-        errors.push(`UID ${record.uid}: ${error.message}`);
+      if (plan.errors.length > 0 && !acceptErrors) {
+        return { plan, refused: true };
       }
+
+      const inserted = plan.toInsert.length > 0
+        ? await Internship.insertMany(
+          // Same default the import page used to apply for rows without a type.
+          plan.toInsert.map(({ values }) => ({ internshipType: '8th Sem', ...values })),
+          { session }
+        )
+        : [];
+
+      if (plan.toUpdate.length > 0) {
+        await Internship.bulkWrite(plan.toUpdate.map(({ _id, writes }) => ({
+          updateOne: {
+            filter: { _id, deletedAt: null },
+            update: { $set: Object.fromEntries(writes.map(({ field, to }) => [field, to])) },
+          },
+        })), { session });
+      }
+
+      const counts = {
+        inserted: inserted.length,
+        updated: plan.toUpdate.length,
+        unchanged: plan.unchanged.length,
+        skipped: plan.changedButSkipped.length + plan.inRecycleBin.length + plan.errors.length,
+      };
+      const [batch] = await ImportBatch.create([{
+        createdBy: req.user?.username || 'unknown',
+        mode,
+        insertedIds: inserted.map((doc) => doc._id),
+        // Every written field (including derived ones), so undo restores all of them.
+        updates: plan.toUpdate.map(({ _id, uid, writes }) => ({ internshipId: _id, uid, diffs: writes })),
+        counts,
+      }], { session });
+
+      return { plan, batch, counts };
+    });
+
+    if (outcome.refused) {
+      return res.status(400).json({
+        success: false,
+        message: `${outcome.plan.errors.length} row(s) have errors. Nothing was imported. Fix the sheet, or confirm that these rows should be skipped.`,
+        errors: outcome.plan.errors.slice(0, IMPORT_LIST_LIMIT),
+      });
     }
 
-    const totalProcessed = insertedCount + updatedCount;
+    const { counts, batch, plan } = outcome;
+    res.locals.auditDetails = { batchId: String(batch._id), mode, ...counts };
 
-    console.log(`✅ Import complete: ${insertedCount} inserted, ${updatedCount} updated, ${failedCount} failed`);
-
-    const uniqueBlocked = [...new Set(blockedFields)];
-
-    res.json({
+    return res.json({
       success: true,
-      message: `Processed ${totalProcessed} of ${internships.length} records. ${insertedCount} new, ${updatedCount} updated${failedCount > 0 ? `, ${failedCount} failed` : ''}`,
-      inserted: insertedCount,
-      updated: updatedCount,
-      failed: failedCount,
-      total: internships.length,
-      errors: errors.length > 0 ? errors.slice(0, 10) : undefined, // Show first 10 errors
-      // Surfaced so a coordinator understands why a column in their sheet was ignored.
-      ignoredFields: uniqueBlocked.length > 0 ? uniqueBlocked : undefined,
-      ignoredFieldsNote: uniqueBlocked.length > 0
+      message: `Imported: ${counts.inserted} new, ${counts.updated} updated, ${counts.unchanged} unchanged, ${counts.skipped} skipped.`,
+      batchId: batch._id,
+      inserted: counts.inserted,
+      updated: counts.updated,
+      unchanged: counts.unchanged,
+      skipped: counts.skipped,
+      total: records.length,
+      ignoredFields: plan.ignoredFields.length > 0 ? plan.ignoredFields : undefined,
+      ignoredFieldsNote: plan.ignoredFields.length > 0
         ? 'These columns were ignored. Evaluation marks can only be set through the Evaluation Marks Import page.'
         : undefined,
     });
   } catch (error) {
-    console.error('❌ Import error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    return next(error);
   }
 });
+
+// GET the most recent import, so the page can offer "Undo".
+router.get('/import/latest', async (req, res, next) => {
+  try {
+    const { ImportBatch } = getModels(req);
+    const batch = await ImportBatch.findOne().sort({ createdAt: -1 }).select('-updates -insertedIds').lean();
+    return res.json({ success: true, data: batch || null });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// POST undo an import (only the most recent one)
+//
+// Students the import created go to the Recycle Bin (so even an undo is reversible).
+// Fields it changed are put back to their old values, but ONLY where the value is
+// still what the import wrote: if someone edited a field since, their edit is kept
+// and reported as a conflict instead of being silently overwritten.
+router.post('/import/:batchId/undo', audit('internships.bulk-import-undo', (req, res) => res.locals.auditDetails || {
+  batchId: req.params.batchId,
+}), async (req, res, next) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.batchId)) {
+      return res.status(400).json({ success: false, message: 'Invalid import id' });
+    }
+
+    const outcome = await withTransaction(async (session) => {
+      const { Internship, ImportBatch } = getModels(req);
+      const latest = await ImportBatch.findOne().sort({ createdAt: -1 }).session(session);
+      if (!latest || String(latest._id) !== req.params.batchId) {
+        return { error: 'Only the most recent import can be undone.' };
+      }
+      if (latest.undoneAt) {
+        return { error: 'This import has already been undone.' };
+      }
+
+      const actor = req.user?.username || 'unknown';
+      const removed = await Internship.updateMany(
+        { _id: { $in: latest.insertedIds } },
+        { $set: { deletedAt: new Date(), deletedBy: `undo import (${actor})` } },
+        { session }
+      );
+
+      const current = await Internship.find({ _id: { $in: latest.updates.map((u) => u.internshipId) } })
+        .lean()
+        .session(session);
+      const byId = new Map(current.map((doc) => [String(doc._id), doc]));
+
+      let reverted = 0;
+      const conflicts = [];
+      const ops = [];
+      for (const update of latest.updates) {
+        const doc = byId.get(String(update.internshipId));
+        if (!doc) {
+          conflicts.push(`${update.uid}: no longer exists`);
+          continue;
+        }
+        const restore = {};
+        for (const { field, from, to } of update.diffs) {
+          if (normalize(doc[field]) === normalize(to)) {
+            restore[field] = from;
+          } else {
+            conflicts.push(`${update.uid}: ${field} was edited after the import, kept the newer value`);
+          }
+        }
+        if (Object.keys(restore).length > 0) {
+          ops.push({ updateOne: { filter: { _id: doc._id }, update: { $set: restore } } });
+          reverted += 1;
+        }
+      }
+      if (ops.length > 0) await Internship.bulkWrite(ops, { session });
+
+      latest.undoneAt = new Date();
+      latest.undoneBy = actor;
+      await latest.save({ session });
+
+      return { removed: removed.modifiedCount, reverted, conflicts };
+    });
+
+    if (outcome.error) {
+      return res.status(409).json({ success: false, message: outcome.error });
+    }
+
+    res.locals.auditDetails = {
+      batchId: req.params.batchId,
+      removed: outcome.removed,
+      reverted: outcome.reverted,
+      conflicts: outcome.conflicts.length,
+    };
+    return res.json({
+      success: true,
+      message: `Import undone: ${outcome.removed} added student(s) moved to the Recycle Bin, ${outcome.reverted} updated student(s) restored.`,
+      conflicts: outcome.conflicts,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 
 // GET download template Excel
 router.get('/template', (req, res) => {
