@@ -255,9 +255,11 @@ export const exportGroups = (groups) => {
 };
 
 // Import data from Excel
-export const importData = (internships) => {
-  return axiosInstance.post('/upload/import', { internships });
-};
+// Student import: always preview first, then apply the same rows.
+export const previewImport = (internships, mode) => axiosInstance.post('/upload/import', { internships, mode, dryRun: true });
+export const applyImport = (internships, mode, acceptErrors) => axiosInstance.post('/upload/import', { internships, mode, acceptErrors });
+export const getLatestImport = () => axiosInstance.get('/upload/import/latest');
+export const undoImport = (batchId) => axiosInstance.post(`/upload/import/${batchId}/undo`);
 
 // External Mentor upload endpoints
 export const importExternalMentors = (mentors) => {

@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { normalizeCompanyName, similarityScore } from '../utils/companyNormalization';
-import { 
-  importData, 
+import {
+  previewImport,
+  applyImport,
+  getLatestImport,
+  undoImport,
   downloadTemplate, 
   importExternalMentors, 
   getExternalMentors, 
@@ -19,6 +22,13 @@ const ExcelUpload = () => {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  // Import safety: every import is previewed first, and the latest one can be undone.
+  const [importMode, setImportMode] = useState('add-only');
+  const [preview, setPreview] = useState(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [acceptErrors, setAcceptErrors] = useState(false);
+  const [lastImport, setLastImport] = useState(null);
+  const [undoing, setUndoing] = useState(false);
 
   const [externalMentorFile, setExternalMentorFile] = useState(null);
   const [parsedExternalMentors, setParsedExternalMentors] = useState([]);
@@ -54,7 +64,20 @@ const ExcelUpload = () => {
     finally { setLoadingInternalMentorList(false); }
   }, []);
 
-  useEffect(() => { fetchExternalMentors(); fetchInternalMentors(); }, [fetchExternalMentors, fetchInternalMentors]);
+  const fetchLatestImport = useCallback(async () => {
+    try {
+      const response = await getLatestImport();
+      setLastImport(response.data.data);
+    } catch {
+      setLastImport(null); // the undo panel is optional; the page works without it
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchExternalMentors();
+    fetchInternalMentors();
+    fetchLatestImport();
+  }, [fetchExternalMentors, fetchInternalMentors, fetchLatestImport]);
 
   const validateFile = (selectedFile, setMsg) => {
     const validTypes = ['.xlsx', '.xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'];
@@ -76,6 +99,43 @@ const ExcelUpload = () => {
     else if (selectedFile) setFile(null);
   };
 
+  // First listed column that exists AND has a value. Returns undefined otherwise, so a
+  // missing column or blank cell is simply not sent, and can never overwrite stored data.
+  // (This used to fall back to today's date for dates, '' for text, invented UIDs like
+  // "AUTO-1", and the row's serial number as a UID.)
+  const pickCell = (row, keys) => {
+    for (const key of keys) {
+      const value = row[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+    }
+    return undefined;
+  };
+
+  // For the preview table: readable dates, and a dash for empty values.
+  const formatValue = (value) => {
+    if (value === null || value === undefined || value === '') return '—';
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) return new Date(value).toLocaleDateString();
+    return String(value);
+  };
+
+  const withoutMissing = (record) => Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined)
+  );
+
+  const runPreview = async (records, mode) => {
+    setPreviewing(true);
+    setPreview(null);
+    setAcceptErrors(false);
+    try {
+      const response = await previewImport(records, mode);
+      setPreview(response.data);
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Could not preview the import: ' + (error.response?.data?.message || error.message) });
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
   const handleParseFile = () => {
     if (!file) { setMessage({ type: 'error', text: 'Please select a file first' }); return; }
     setLoading(true);
@@ -83,52 +143,34 @@ const ExcelUpload = () => {
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
+        // cellDates: real dates instead of Excel serial numbers (45658 would become 1970).
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(worksheet);
         if (json.length === 0) { setMessage({ type: 'error', text: 'Excel file is empty' }); setLoading(false); return; }
-        const mapped = json.map((row, idx) => {
-          const rawUid = row['UID']
-            || row['uid']
-            || row['Roll No']
-            || row['Roll No.']
-            || row['roll no']
-            || row['roll no.']
-            || row['Sr No']
-            || row['Sr No.']
-            || row['S.No']
-            || row['S No']
-            || row['sr no']
-            || row['s.no']
-            || '';
-          const uid = String(rawUid || '').trim() || `AUTO-${idx + 1}`;
-          if (!rawUid) console.warn(`Row ${idx + 1}: Missing UID, using ${uid}`);
-          const companyName = row['8th Sem Internship Offer'] || row['Company Name'] || row['companyName'] || row['company'] || row['Placement Offer'] || '';
-          const standardized_company_name = normalizeCompanyName(companyName);
-          return {
-            email: row['Institute Email ID'] || row['Personal Email ID'] || row['Email'] || row['email'] || '',
-            name: row['Name'] || row['name'] || row['Student Name'] || '',
-            uid,
-            branch: row['Branch'] || row['branch'] || '',
-            internshipType: row['Internship Type'] || row['internshipType'] || '8th Sem',
-            companyName,
-            standardized_company_name,
-            externalMentorName: row['External Mentor Name'] || row['externalMentorName'] || '',
-            startDate: row['Start Date'] || row['startDate'] || new Date(),
-            endDate: row['End Date'] || row['endDate'] || new Date(),
-            documentLink: row['8th Sem Internship Offer Letter'] || row['Document Link'] || row['documentLink'] || '',
-            companyLocation: row['Company Location'] || row['companyLocation'] || '',
-            internshipTitle: row['Role'] || row['Internship Title'] || row['internshipTitle'] || row['Profile'] || row['profile'] || '',
-            profile: row['Profile'] || row['profile'] || row['Tech/Non-Tech'] || row['Tech Non Tech'] || row['Role Type'] || row['role type'] || '',
-            stipend: row['8th Sem Internship Stipend'] || row['Stipend'] || row['stipend'] || '',
-            gender: row['Gender'] || row['gender'] || '',
-            phone: row['Mobile No.'] || row['Phone'] || row['phone'] || '',
-            ctc: row['CTC (LPA)'] || row['CTC'] || row['ctc'] || '',
-            placementOffer: row['Placement Offer'] || row['placementOffer'] || '',
-            remarks: row['Remarks'] || row['remarks'] || '',
-            submittedAt: row['Submitted At'] || new Date()
-          };
-        });
+        const mapped = json.map((row) => withoutMissing({
+          // No UID → sent as blank so the preview reports the row, never an invented ID.
+          uid: String(pickCell(row, ['UID', 'uid', 'Roll No', 'Roll No.', 'roll no', 'roll no.']) ?? '').trim(),
+          email: pickCell(row, ['Institute Email ID', 'Personal Email ID', 'Email', 'email']),
+          name: pickCell(row, ['Name', 'name', 'Student Name']),
+          branch: pickCell(row, ['Branch', 'branch']),
+          internshipType: pickCell(row, ['Internship Type', 'internshipType']),
+          companyName: pickCell(row, ['8th Sem Internship Offer', 'Company Name', 'companyName', 'company', 'Placement Offer']),
+          externalMentorName: pickCell(row, ['External Mentor Name', 'externalMentorName']),
+          startDate: pickCell(row, ['Start Date', 'startDate']),
+          endDate: pickCell(row, ['End Date', 'endDate']),
+          documentLink: pickCell(row, ['8th Sem Internship Offer Letter', 'Document Link', 'documentLink']),
+          companyLocation: pickCell(row, ['Company Location', 'companyLocation']),
+          internshipTitle: pickCell(row, ['Role', 'Internship Title', 'internshipTitle', 'Profile', 'profile']),
+          profile: pickCell(row, ['Profile', 'profile', 'Tech/Non-Tech', 'Tech Non Tech', 'Role Type', 'role type']),
+          stipend: pickCell(row, ['8th Sem Internship Stipend', 'Stipend', 'stipend']),
+          gender: pickCell(row, ['Gender', 'gender']),
+          phone: pickCell(row, ['Mobile No.', 'Phone', 'phone']),
+          ctc: pickCell(row, ['CTC (LPA)', 'CTC', 'ctc']),
+          placementOffer: pickCell(row, ['Placement Offer', 'placementOffer']),
+          remarks: pickCell(row, ['Remarks', 'remarks']),
+          submittedAt: pickCell(row, ['Submitted At']),
+        }));
         setParsedData(mapped);
         const rawNames = mapped
           .map((item) => String(item.companyName || '').trim())
@@ -147,32 +189,55 @@ const ExcelUpload = () => {
           }
         }
         setCompanySuggestions(suggestions.slice(0, 20));
-        setMessage({ type: 'success', text: `Parsed ${mapped.length} records from ${json.length} rows.` });
+        setMessage({ type: '', text: '' });
+        runPreview(mapped, importMode);
       } catch (error) { setMessage({ type: 'error', text: 'Error parsing file: ' + error.message }); }
       finally { setLoading(false); }
     };
     reader.readAsArrayBuffer(file);
   };
 
+  const handleModeChange = (mode) => {
+    setImportMode(mode);
+    if (parsedData.length > 0) runPreview(parsedData, mode);
+  };
+
   const handleImport = async () => {
     if (parsedData.length === 0) { setMessage({ type: 'error', text: 'No data to import' }); return; }
     setImporting(true);
     try {
-      const response = await importData(parsedData);
-      if (response.data.success) {
-        let text = response.data.message;
-        if (response.data.inserted !== undefined) {
-          text += `\n${response.data.inserted} new records created, ${response.data.updated} updated`;
-          if (response.data.failed > 0) text += `, ${response.data.failed} failed`;
-        }
-        if (response.data.errors?.length > 0) text += '\nErrors:\n' + response.data.errors.join('\n');
-        setMessage({ type: response.data.failed > 0 ? 'warning' : 'success', text });
-        setParsedData([]); setCompanySuggestions([]); setFile(null);
-      }
+      const response = await applyImport(parsedData, importMode, acceptErrors);
+      let text = response.data.message;
+      if (response.data.ignoredFieldsNote) text += `\n${response.data.ignoredFieldsNote} (${response.data.ignoredFields.join(', ')})`;
+      setMessage({ type: 'success', text });
+      setParsedData([]); setCompanySuggestions([]); setFile(null); setPreview(null);
+      fetchLatestImport();
     } catch (error) {
-      setMessage({ type: 'error', text: 'Error importing data: ' + (error.response?.data?.message || error.message) });
+      setMessage({ type: 'error', text: 'Nothing was imported: ' + (error.response?.data?.message || error.message) });
     } finally { setImporting(false); }
   };
+
+  const handleUndoImport = async () => {
+    if (!lastImport) return;
+    const { inserted, updated } = lastImport.counts || {};
+    const ok = window.confirm(
+      `Undo the import from ${new Date(lastImport.createdAt).toLocaleString()} by ${lastImport.createdBy}?\n\n`
+      + `${inserted || 0} added student(s) will move to the Recycle Bin and ${updated || 0} updated student(s) will get their old details back. `
+      + 'Fields edited since the import are kept.'
+    );
+    if (!ok) return;
+    setUndoing(true);
+    try {
+      const response = await undoImport(lastImport._id);
+      let text = response.data.message;
+      if (response.data.conflicts?.length > 0) text += '\n\nKept because they were edited after the import:\n' + response.data.conflicts.join('\n');
+      setMessage({ type: response.data.conflicts?.length > 0 ? 'warning' : 'success', text });
+      fetchLatestImport();
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Undo failed, nothing was changed: ' + (error.response?.data?.message || error.message) });
+    } finally { setUndoing(false); }
+  };
+
 
   const handleDownloadTemplate = async () => {
     try {
@@ -459,31 +524,145 @@ const ExcelUpload = () => {
           {parsedData.length > 0 && (
             <>
               <hr className="border-gray-100" />
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Step 3 — Preview & Import</p>
-                <p className="text-sm text-gray-600 mb-3">
-                  {parsedData.length} valid records ready.{parsedData.length > 10 ? ` Showing first 10 of ${parsedData.length}.` : ''}
-                </p>
-                <div className="overflow-x-auto max-h-64 overflow-y-auto rounded border border-gray-200 mb-4">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Name</th><th>UID</th><th>Branch</th><th>Company</th><th>Placement Type</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {parsedData.slice(0, 10).map((item, i) => (
-                        <tr key={i}>
-                          <td>{item.name}</td><td>{item.uid}</td>
-                          <td><span className="badge badge-blue">{item.branch}</span></td>
-                          <td>{item.companyName}</td><td>{item.internshipType}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <button onClick={handleImport} disabled={importing} className="btn-primary">
-                  {importing ? 'Importing...' : 'Import to Database'}
+              <div className="space-y-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Step 3 — Review what will change</p>
+
+                <fieldset>
+                  <legend className="form-label">Students who already exist</legend>
+                  <div className="flex flex-col gap-1 text-sm text-gray-700">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="import-mode"
+                        checked={importMode === 'add-only'}
+                        onChange={() => handleModeChange('add-only')}
+                      />
+                      Add new students only. Existing students are not changed. (Recommended)
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="import-mode"
+                        checked={importMode === 'update'}
+                        onChange={() => handleModeChange('update')}
+                      />
+                      Also update existing students with the details shown below
+                    </label>
+                  </div>
+                </fieldset>
+
+                {previewing && (
+                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <div className="loading-spinner" style={{ width: '18px', height: '18px' }} />
+                    Checking {parsedData.length} rows against the database...
+                  </div>
+                )}
+
+                {preview && !previewing && (
+                  <>
+                    <div className="flex flex-wrap gap-2 text-sm">
+                      <span className="badge-green">{preview.summary.new} new</span>
+                      <span className="badge-blue">
+                        {preview.summary.changed} with different details
+                        {importMode === 'add-only' && preview.summary.changed > 0 ? ' (not changed)' : ''}
+                      </span>
+                      <span className="badge-gray">{preview.summary.unchanged} unchanged</span>
+                      {preview.summary.inRecycleBin > 0 && (
+                        <span className="badge-gray">{preview.summary.inRecycleBin} in Recycle Bin (skipped)</span>
+                      )}
+                      {preview.summary.errors > 0 && <span className="badge-red">{preview.summary.errors} with errors</span>}
+                    </div>
+
+                    {preview.changedStudents.length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium text-gray-700 mb-1">
+                          {importMode === 'update' ? 'These changes will be saved:' : 'Differences found (shown for information; nothing will change):'}
+                        </p>
+                        <div className="overflow-x-auto max-h-64 overflow-y-auto rounded border border-gray-200">
+                          <table className="data-table">
+                            <thead>
+                              <tr><th>UID</th><th>Name</th><th>Field</th><th>Now</th><th>In the sheet</th></tr>
+                            </thead>
+                            <tbody>
+                              {preview.changedStudents.flatMap((student) => student.diffs.map((diff, i) => (
+                                <tr key={`${student.uid}-${diff.field}`}>
+                                  <td>{i === 0 ? student.uid : ''}</td>
+                                  <td>{i === 0 ? student.name : ''}</td>
+                                  <td>{diff.field}</td>
+                                  <td className="text-gray-500">{formatValue(diff.from)}</td>
+                                  <td className="font-medium">{formatValue(diff.to)}</td>
+                                </tr>
+                              )))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {preview.newStudents.length > 0 && (
+                      <p className="text-sm text-gray-600">
+                        New: {preview.newStudents.slice(0, 15).map((s) => s.uid).join(', ')}
+                        {preview.newStudents.length > 15 ? ` and ${preview.summary.new - 15} more` : ''}
+                      </p>
+                    )}
+
+                    {preview.inRecycleBin.length > 0 && (
+                      <div className="alert-warning text-sm">
+                        In the Recycle Bin, so skipped: {preview.inRecycleBin.map((s) => s.uid).join(', ')}.
+                        An administrator can restore them first if they should be updated.
+                      </div>
+                    )}
+
+                    {preview.errors.length > 0 && (
+                      <div className="alert-error text-sm">
+                        <div className="font-semibold mb-1">Rows that cannot be imported:</div>
+                        <ul className="space-y-0.5">
+                          {preview.errors.slice(0, 20).map((err) => (
+                            <li key={`${err.row}-${err.uid}`}>Row {err.row}{err.uid ? ` (${err.uid})` : ''}: {err.message}</li>
+                          ))}
+                        </ul>
+                        <label className="flex items-center gap-2 mt-2">
+                          <input type="checkbox" checked={acceptErrors} onChange={(e) => setAcceptErrors(e.target.checked)} />
+                          Skip these {preview.summary.errors} rows and import the rest
+                        </label>
+                      </div>
+                    )}
+
+                    {preview.ignoredFields?.length > 0 && (
+                      <div className="alert-info text-sm">
+                        Ignored columns: {preview.ignoredFields.join(', ')}. Marks can only be set through Evaluation Marks Import.
+                      </div>
+                    )}
+
+                    <button
+                      onClick={handleImport}
+                      disabled={
+                        importing
+                        || (preview.summary.errors > 0 && !acceptErrors)
+                        || (preview.summary.new === 0 && (importMode === 'add-only' || preview.summary.willUpdate === 0))
+                      }
+                      className="btn-primary"
+                    >
+                      {importing
+                        ? 'Importing...'
+                        : `Import ${preview.summary.new} new${importMode === 'update' ? `, update ${preview.summary.willUpdate}` : ''}`}
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+
+          {lastImport && !lastImport.undoneAt && (
+            <>
+              <hr className="border-gray-100" />
+              <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
+                <span>
+                  Last import: {new Date(lastImport.createdAt).toLocaleString()} by {lastImport.createdBy}
+                  {' '}({lastImport.counts?.inserted || 0} added, {lastImport.counts?.updated || 0} updated)
+                </span>
+                <button onClick={handleUndoImport} disabled={undoing} className="btn-secondary">
+                  {undoing ? 'Undoing...' : 'Undo last import'}
                 </button>
               </div>
             </>
@@ -491,7 +670,8 @@ const ExcelUpload = () => {
 
           <hr className="border-gray-100" />
           <div className="alert-info">
-            <strong>Format requirements:</strong> UID is required. Branch must be COMPS, EXTC, CSE, MCA, AIML, IT, MECH, or ETRX. Rows without UID and Company will be skipped. Max file size 5 MB.
+            <strong>How importing works:</strong> UID is required for every row. Nothing is saved until you review the preview and click Import.
+            Blank cells never erase existing data, and marks cannot be changed from this page. Max file size 5 MB.
           </div>
         </div>
       </div>
