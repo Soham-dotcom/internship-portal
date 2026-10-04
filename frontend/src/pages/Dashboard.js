@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { getSummaryStats, getAnalyticsSummary } from '../api/axios';
+import { EmptyState } from '../components/States';
 
 const Dashboard = () => {
   const [stats, setStats] = useState({
@@ -23,8 +24,11 @@ const Dashboard = () => {
     techDistribution: null,
   });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const fetchData = useCallback(async () => {
+    setLoading(true);
+    setLoadError('');
     try {
       const [statsRes, analyticsRes] = await Promise.all([
         getSummaryStats(),
@@ -33,7 +37,8 @@ const Dashboard = () => {
       if (statsRes.data.success) setStats(statsRes.data.data);
       if (analyticsRes.data.success) setAnalytics(analyticsRes.data.data);
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      // Never show zeros for a failed load: they would look like an empty year.
+      setLoadError(error.response?.data?.message || error.message || 'Could not load the dashboard.');
     } finally {
       setLoading(false);
     }
@@ -48,6 +53,30 @@ const Dashboard = () => {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
           <p className="mt-3 text-sm text-gray-500">Loading dashboard data...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="page-container">
+        <div className="alert-error flex items-center justify-between gap-3" role="alert">
+          <span>Could not load the dashboard: {loadError}</span>
+          <button type="button" className="btn-secondary" onClick={fetchData}>Try again</button>
+        </div>
+      </div>
+    );
+  }
+
+  // A new academic year starts empty: say so, and point to the next step.
+  if (!stats.totalOffers) {
+    return (
+      <div className="page-container">
+        <EmptyState
+          title="No students in this academic year yet"
+          message="Import the placement spreadsheet to get started. The dashboard fills in as soon as records are added."
+          action={{ label: 'Go to Data Import Center', to: '/upload' }}
+        />
       </div>
     );
   }

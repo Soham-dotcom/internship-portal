@@ -4,6 +4,8 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { axiosInstance } from '../api/axios';
+import { EmptyState } from '../components/States';
+import { toast } from '../ui/feedback';
 
 const CompanyAnalytics = () => {
   const [companies, setCompanies]             = useState([]);
@@ -18,12 +20,14 @@ const CompanyAnalytics = () => {
   const [searchResults, setSearchResults]     = useState([]);
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [loading, setLoading]                 = useState(true);
+  const [loadError, setLoadError]             = useState('');
   const [currentPage, setCurrentPage]         = useState(1);
   const itemsPerPage = 15;
 
   const fetchAnalytics = useCallback(async () => {
     try {
       setLoading(true);
+      setLoadError('');
       const [companiesRes, branchesRes, mentorsRes, companyBranchesRes,
              techDistRes, techPosRes, nonTechPosRes] = await Promise.all([
         axiosInstance.get('/analytics/companies'),
@@ -52,7 +56,8 @@ const CompanyAnalytics = () => {
       if (techPosRes.data.success)    setTechPositions(techPosRes.data.data.slice(0, 10));
       if (nonTechPosRes.data.success) setNonTechPositions(nonTechPosRes.data.data.slice(0, 10));
     } catch (error) {
-      console.error('Error fetching analytics:', error);
+      // Never show an empty page for a failed load: it would look like there is no data.
+      setLoadError(error.response?.data?.message || error.message || 'Could not load analytics.');
     } finally {
       setLoading(false);
     }
@@ -66,7 +71,7 @@ const CompanyAnalytics = () => {
     try {
       const response = await axiosInstance.get('/analytics/companies/search', { params: { name: query } });
       if (response.data.success) setSearchResults(response.data.data);
-    } catch (error) { console.error('Search error:', error); }
+    } catch (error) { toast.error(`Search failed: ${error.response?.data?.message || error.message}`); }
   };
 
   const handleSelectCompany = async (companyName) => {
@@ -77,7 +82,7 @@ const CompanyAnalytics = () => {
         setSearchQuery('');
         setSearchResults([]);
       }
-    } catch (error) { console.error('Error fetching company details:', error); }
+    } catch (error) { toast.error(`Could not load company details: ${error.response?.data?.message || error.message}`); }
   };
 
   if (loading) {
@@ -87,6 +92,29 @@ const CompanyAnalytics = () => {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
           <p className="mt-3 text-sm text-gray-500">Loading analytics data...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="page-container">
+        <div className="alert-error flex items-center justify-between gap-3" role="alert">
+          <span>Could not load analytics: {loadError}</span>
+          <button type="button" className="btn-secondary" onClick={fetchAnalytics}>Try again</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (companies.length === 0) {
+    return (
+      <div className="page-container">
+        <EmptyState
+          title="No company data yet"
+          message="Company analytics appear once student records with company names have been imported for this academic year."
+          action={{ label: 'Go to Data Import Center', to: '/upload' }}
+        />
       </div>
     );
   }

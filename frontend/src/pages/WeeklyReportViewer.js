@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { getWeeklyReports } from '../api/axios';
+import { TableSkeleton } from '../components/States';
 
 const WeeklyReportViewer = () => {
   const [weeks, setWeeks] = useState(8);
@@ -102,6 +103,7 @@ const WeeklyReportViewer = () => {
                   ))}
                 </tr>
               ))}
+              {loading && filteredRows.length === 0 && <TableSkeleton columns={weekColumns.length + 2} />}
               {filteredRows.length === 0 && !loading && (
                 <tr>
                   <td colSpan={weekColumns.length + 2} className="px-3 py-6 text-center text-gray-500">

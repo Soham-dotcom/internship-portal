@@ -21,6 +21,7 @@ const FeedbackHost = () => {
   const panelRef = useRef(null);
   const inputRef = useRef(null);
   const confirmRef = useRef(null);
+  const cancelRef = useRef(null);
   const returnFocusRef = useRef(null);
 
   useEffect(() => subscribe(setState), []);
@@ -29,7 +30,9 @@ const FeedbackHost = () => {
     if (!dialog) return undefined;
     returnFocusRef.current = document.activeElement;
     setAnswer('');
-    const timer = setTimeout(() => (inputRef.current || confirmRef.current)?.focus(), 0);
+    // Destructive dialogs start on Cancel, so a stray Enter never deletes anything.
+    const target = inputRef.current || (dialog.danger ? cancelRef.current : confirmRef.current);
+    const timer = setTimeout(() => target?.focus(), 0);
     return () => {
       clearTimeout(timer);
       returnFocusRef.current?.focus?.();
@@ -99,7 +102,7 @@ const FeedbackHost = () => {
               )}
             </div>
             <div className="mt-5 flex justify-end gap-2 border-t border-gray-100 px-5 py-3">
-              <button type="button" className="btn-secondary" onClick={cancel}>{dialog.cancelLabel}</button>
+              <button type="button" ref={cancelRef} className="btn-secondary" onClick={cancel}>{dialog.cancelLabel}</button>
               <button
                 type="button"
                 ref={confirmRef}

@@ -4,6 +4,7 @@ import { getEvaluationOverview, getEvaluationSettings, updateEvaluationSettings,
 import { isAdmin } from '../auth/session';
 import StudentHistory from '../components/StudentHistory';
 import { confirmDialog } from '../ui/feedback';
+import { TableSkeleton } from '../components/States';
 
 const EvaluationOverview = () => {
   const [rows, setRows] = useState([]);
@@ -608,6 +609,7 @@ const EvaluationOverview = () => {
                   </td>
                 </tr>
               ))}
+              {loading && filteredRows.length === 0 && <TableSkeleton columns={13} />}
               {filteredRows.length === 0 && !loading && (
                 <tr>
                   <td colSpan={13} className="px-3 py-6 text-center text-gray-500">
