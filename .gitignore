@@ -40,3 +40,12 @@ Thumbs.db
 
 
 
+
+
+# Student data exports contain personal data and must never be committed.
+*.csv
+*.xlsx
+*.xls
+
+# Local database backups (contain all student data)
+backups/
