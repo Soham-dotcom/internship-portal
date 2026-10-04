@@ -145,7 +145,8 @@ const run = async () => {
     process.exit(1);
   }
 
-  console.log('Takes effect on their next sign-in.');
+  // Role, status and years are re-read from the database on every request.
+  console.log('Takes effect immediately, on their very next request.');
   process.exit(0);
 };
 

@@ -4,6 +4,8 @@ const jwt = require('jsonwebtoken');
 const { getSharedDb } = require('../db/connection');
 const { getUserModel } = require('../models/User');
 const { parseYears } = require('../config/years');
+const { authRequired } = require('../middleware/auth');
+const { audit } = require('../middleware/audit');
 
 const router = express.Router();
 
@@ -98,6 +100,7 @@ router.post('/login', async (req, res, next) => {
         role: user.role,
         year: String(year),
         allowedYears,
+        tv: user.tokenVersion || 0,
       },
       process.env.JWT_SECRET,
       { expiresIn: '12h' }
@@ -115,6 +118,21 @@ router.post('/login', async (req, res, next) => {
     });
   } catch (error) {
     return next(error);
+  }
+});
+
+/**
+ * Ends the session everywhere. Bumping tokenVersion invalidates every token this
+ * account holds (all devices, all years), because a stateless JWT cannot be
+ * revoked individually without a server-side token list.
+ */
+router.post('/logout', authRequired, audit('auth.logout'), async (req, res, next) => {
+  try {
+    const User = getUserModel(getSharedDb());
+    await User.updateOne({ _id: req.user.id }, { $inc: { tokenVersion: 1 } });
+    res.json({ success: true, message: 'Signed out' });
+  } catch (error) {
+    next(error);
   }
 });
 

@@ -1,13 +1,31 @@
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const { parseYears } = require('../config/years');
+const { getSharedDb } = require('../db/connection');
+const { getUserModel } = require('../models/User');
+
+const SESSION_ENDED = 'Your session has ended. Please sign in again.';
+
+const defaultFindUser = (id) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) return null;
+  return getUserModel(getSharedDb())
+    .findById(id)
+    .select('username role status allowedYears tokenVersion')
+    .lean();
+};
 
 /**
- * Verifies the bearer token and populates req.user.
+ * Builds the authentication middleware.
  *
- * This only establishes WHO the caller is. What they may do is decided by
- * requireRole() and requireYearAccess() below — never by the frontend.
+ * The JWT only proves WHO the caller is. Role, account status, allowed years and
+ * token version are re-read from the user record on every request, so that
+ * disabling an account, demoting it, or logging out takes effect immediately
+ * instead of when the 12-hour token expires. At this portal's scale the extra
+ * lookup (one indexed read on a tiny collection) is negligible.
+ *
+ * `findUser` is injectable so tests can run without a database.
  */
-const authRequired = (req, res, next) => {
+const createAuthRequired = ({ findUser = defaultFindUser } = {}) => async (req, res, next) => {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
@@ -15,25 +33,45 @@ const authRequired = (req, res, next) => {
     return res.status(401).json({ success: false, message: 'Missing authorization token' });
   }
 
+  let payload;
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-
-    req.user = {
-      id: payload.sub,
-      username: payload.username,
-      // Tokens issued before roles existed have no `role` claim. Treat them as the
-      // LESS privileged role so an old token can never grant admin powers.
-      role: payload.role === 'admin' ? 'admin' : 'staff',
-      year: payload.year,
-      allowedYears: Array.isArray(payload.allowedYears) ? payload.allowedYears : [],
-    };
-    req.year = payload.year;
-
-    return next();
+    payload = jwt.verify(token, process.env.JWT_SECRET);
   } catch (error) {
     return res.status(401).json({ success: false, message: 'Invalid or expired token' });
   }
+
+  let user;
+  try {
+    user = await findUser(payload.sub);
+  } catch (error) {
+    // Fail closed: if we cannot confirm the account, do not let the request through.
+    return next(error);
+  }
+
+  if (!user || user.status === 'disabled') {
+    return res.status(401).json({ success: false, message: SESSION_ENDED });
+  }
+
+  // Logout and password changes increment tokenVersion, which invalidates every
+  // token issued before that moment. Missing values on either side mean 0, so
+  // tokens issued before this check existed keep working.
+  if ((payload.tv || 0) !== (user.tokenVersion || 0)) {
+    return res.status(401).json({ success: false, message: SESSION_ENDED });
+  }
+
+  req.user = {
+    id: String(user._id),
+    username: user.username,
+    role: user.role === 'admin' ? 'admin' : 'staff',
+    year: payload.year,
+    allowedYears: Array.isArray(user.allowedYears) ? user.allowedYears.map(String) : [],
+  };
+  req.year = payload.year;
+
+  return next();
 };
+
+const authRequired = createAuthRequired();
 
 /**
  * Restricts a route to specific roles.
@@ -91,6 +129,7 @@ const requireYearAccess = (req, res, next) => {
 };
 
 module.exports = {
+  createAuthRequired,
   authRequired,
   requireRole,
   requireYearAccess,

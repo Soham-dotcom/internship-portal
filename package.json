@@ -14,7 +14,10 @@
     "seed": "node backend/seed.js",
     "seed-new": "node backend/seed-new.js",
     "seed-user": "node backend/scripts/seed-user.js",
-    "set-password": "node backend/scripts/set-password.js"
+    "set-password": "node backend/scripts/set-password.js",
+    "manage-users": "node backend/scripts/manage-users.js",
+    "backup": "node backend/scripts/backup.js",
+    "restore": "node backend/scripts/restore.js"
   },
   "jest": {
     "testEnvironment": "node",
@@ -41,6 +44,7 @@
   "devDependencies": {
     "concurrently": "^8.2.1",
     "jest": "^29.7.0",
+    "mongodb-memory-server": "^10.4.3",
     "nodemon": "^3.0.1",
     "supertest": "^7.2.2"
   }

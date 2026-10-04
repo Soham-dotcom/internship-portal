@@ -35,6 +35,12 @@ const userSchema = new mongoose.Schema({
   failedLoginAttempts: { type: Number, default: 0 },
   lockUntil: { type: Date, default: null },
   lastLoginAt: { type: Date, default: null },
+
+  /**
+   * Copied into every token as `tv`. Incrementing it (logout, password change)
+   * instantly invalidates all tokens issued before, on every device.
+   */
+  tokenVersion: { type: Number, default: 0 },
 }, {
   timestamps: true,
 });

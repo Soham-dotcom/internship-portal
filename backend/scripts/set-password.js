@@ -48,9 +48,11 @@ const run = async () => {
     user.password = undefined;
     user.failedLoginAttempts = 0;
     user.lockUntil = null;
+    // Sign out every existing session: whoever had the old password is cut off now.
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
     await user.save();
 
-    console.log(`Password updated for "${username}".`);
+    console.log(`Password updated for "${username}". All their existing sessions are signed out.`);
     process.exit(0);
   } catch (error) {
     console.error('Failed to set password:', error.message);
