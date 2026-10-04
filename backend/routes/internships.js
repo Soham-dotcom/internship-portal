@@ -6,6 +6,7 @@ const { getGroupModel } = require('../models/Group');
 const { containsRegex, exactRegex } = require('../utils/escapeRegex');
 const { audit } = require('../middleware/audit');
 const { requireRole } = require('../middleware/auth');
+const { ensureMarksWritable } = require('../middleware/locks');
 const { pickAllowed, CREATE_FIELDS, UPDATE_FIELDS } = require('../utils/allowedFields');
 const { validateMarksUpdate, MARK_FIELDS } = require('../utils/marks');
 const mongoose = require('mongoose');
@@ -190,8 +191,11 @@ router.put('/:id/marks', audit('internships.marks-update', (req, res) => res.loc
       return res.status(400).json({ success: false, message: error });
     }
 
-    const Internship = getInternshipModel(getYearDb(req.year));
     const fields = Object.keys(value);
+    // Locked marks components: staff refused, admins need a recorded reason.
+    if (!(await ensureMarksWritable(req, res, fields))) return undefined;
+
+    const Internship = getInternshipModel(getYearDb(req.year));
     const before = await Internship.findById(req.params.id).select(['uid', ...fields].join(' ')).lean();
     if (!before) {
       return res.status(404).json({ success: false, message: 'Student not found' });

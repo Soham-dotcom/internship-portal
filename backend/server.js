@@ -6,6 +6,7 @@ const dotenv = require('dotenv');
 const path = require('path');
 const { connectToMongo } = require('./db/connection');
 const { authRequired, requireYearAccess } = require('./middleware/auth');
+const { enforceYearLock } = require('./middleware/locks');
 const { loginLimiter, apiLimiter } = require('./middleware/rateLimit');
 const {
   sanitizeServerErrors,
@@ -24,6 +25,7 @@ const mailDraftRoutes = require('./routes/mail-draft');
 const senderEmailsRoutes = require('./routes/sender-emails');
 const evaluationSettingsRoutes = require('./routes/evaluation-settings');
 const authRoutes = require('./routes/auth');
+const yearSettingsRoutes = require('./routes/year-settings');
 
 // Load .env from root directory or backend directory
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
@@ -84,7 +86,8 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  // X-Lock-Override-Reason: an admin's reason for changing locked data (see middleware/locks.js).
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Lock-Override-Reason'],
 };
 
 // Middleware
@@ -163,6 +166,8 @@ app.use('/api/auth', authRoutes);
 // token must be one the account is actually permitted to open.
 app.use('/api', authRequired);
 app.use('/api', requireYearAccess);
+// A locked (finished) year is read-only: staff are refused, admins must give a reason.
+app.use('/api', enforceYearLock);
 
 app.use('/api/internships', internshipRoutes);
 app.use('/api/upload', uploadRoutes);
@@ -174,6 +179,7 @@ app.use('/api/mentors', mentorRoutes);
 app.use('/api/mail-draft', mailDraftRoutes);
 app.use('/api/sender-emails', senderEmailsRoutes);
 app.use('/api/evaluation-settings', evaluationSettingsRoutes);
+app.use('/api/year-settings', yearSettingsRoutes);
 
 // Unmatched API routes return JSON, never stray HTML.
 app.use('/api', notFoundHandler);

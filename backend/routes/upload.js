@@ -13,6 +13,7 @@ const { getGroupModel } = require('../models/Group');
 const { normalizeCompanyName } = require('../utils/companyNormalization');
 const { requireRole } = require('../middleware/auth');
 const { audit } = require('../middleware/audit');
+const { ensureMarksWritable } = require('../middleware/locks');
 const { MARKS_IMPORTS, UID_COLUMNS, planMarksImport } = require('../utils/marksImport');
 const { planStudentImport, normalize } = require('../utils/studentImport');
 
@@ -178,6 +179,7 @@ Object.entries(MARKS_IMPORTS).forEach(([type, config]) => {
         if (!req.file) {
           return res.status(400).json({ success: false, message: 'No file uploaded' });
         }
+        if (!(await ensureMarksWritable(req, res, [config.field]))) return undefined;
 
         const rows = parseExcelBuffer(req.file.buffer);
         if (rows.length === 0) {
@@ -260,6 +262,7 @@ router.post('/evaluation/weekly-reports', handleUpload('file'), audit('marks-imp
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
+    if (!(await ensureMarksWritable(req, res, ['weekly_reports_completed']))) return undefined;
 
     const weeks = parseIntSafe(req.body.weeks) || 8;
     const rows = parseExcelBuffer(req.file.buffer);
