@@ -656,7 +656,7 @@ router.get('/template', (req, res) => {
 });
 
 // POST import mentors from Excel
-router.post('/mentors', async (req, res) => {
+router.post('/mentors', audit('mentors.import-external', (req) => ({ rows: Array.isArray(req.body?.mentors) ? req.body.mentors.length : 0 })), async (req, res) => {
   try {
     const { Mentor } = getModels(req);
     const { mentors } = req.body;
@@ -726,7 +726,7 @@ router.post('/mentors', async (req, res) => {
 });
 
 // POST import INTERNAL mentors from Excel
-router.post('/internal-mentors', async (req, res) => {
+router.post('/internal-mentors', audit('mentors.import-internal', (req) => ({ rows: Array.isArray(req.body?.mentors) ? req.body.mentors.length : 0 })), async (req, res) => {
   try {
     const { InternalMentor } = getModels(req);
     const { mentors } = req.body;
@@ -987,7 +987,7 @@ router.get('/internal-mentor-template', (req, res) => {
 });
 
 // DELETE a single mentor by ID
-router.delete('/mentors/:id', async (req, res) => {
+router.delete('/mentors/:id', audit('mentors.delete-external', (req, res) => res.locals.auditDetails || { mentorId: req.params.id }), async (req, res) => {
   try {
     const { Mentor, Group } = getModels(req);
     const mentorId = req.params.id;
@@ -1014,6 +1014,7 @@ router.delete('/mentors/:id', async (req, res) => {
 
     // Delete the mentor
     await Mentor.findByIdAndDelete(mentorId);
+    res.locals.auditDetails = { mentorId, name: mentor.name, email: mentor.email };
 
     res.json({
       success: true,
@@ -1054,7 +1055,7 @@ router.delete('/mentors', requireRole('admin'), audit('mentors.delete-all-extern
 });
 
 // DELETE a single INTERNAL mentor by ID
-router.delete('/internal-mentors/:id', async (req, res) => {
+router.delete('/internal-mentors/:id', audit('mentors.delete-internal', (req, res) => res.locals.auditDetails || { mentorId: req.params.id }), async (req, res) => {
   try {
     const { InternalMentor, Group } = getModels(req);
     const mentorId = req.params.id;
@@ -1081,6 +1082,7 @@ router.delete('/internal-mentors/:id', async (req, res) => {
 
     // Delete the mentor
     await InternalMentor.findByIdAndDelete(mentorId);
+    res.locals.auditDetails = { mentorId, name: mentor.name, email: mentor.email };
 
     res.json({
       success: true,

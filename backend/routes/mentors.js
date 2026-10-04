@@ -4,6 +4,7 @@ const { getYearDb } = require('../db/connection');
 const { getMentorModel } = require('../models/Mentor');
 const { getInternalMentorModel } = require('../models/InternalMentor');
 const { getGroupModel } = require('../models/Group');
+const { audit } = require('../middleware/audit');
 
 const router = express.Router();
 
@@ -69,7 +70,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/mentors
-router.post('/', async (req, res) => {
+router.post('/', audit('mentors.create', (req) => ({ type: req.body?.type, email: String(req.body?.email || '').trim().toLowerCase() })), async (req, res) => {
   try {
     const type = (req.body.type || 'external') === 'internal' ? 'internal' : 'external';
     const Model = resolveMentorModel(type, req);
@@ -112,7 +113,7 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/mentors/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', audit('mentors.update', (req) => ({ mentorId: req.params.id, fields: Object.keys(req.body || {}).filter((k) => k !== 'type') })), async (req, res) => {
   try {
     const type = (req.body.type || req.query.type || 'external') === 'internal' ? 'internal' : 'external';
     const Model = resolveMentorModel(type, req);

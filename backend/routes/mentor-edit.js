@@ -5,6 +5,7 @@ const { getInternshipModel } = require('../models/Internship');
 const { containsRegex } = require('../utils/escapeRegex');
 const { audit } = require('../middleware/audit');
 const { pickAllowed, UPDATE_FIELDS } = require('../utils/allowedFields');
+const { updateStudentWithChanges } = require('../utils/changes');
 
 // GET mentor's interns
 router.get('/internships', async (req, res) => {
@@ -26,28 +27,27 @@ router.get('/internships', async (req, res) => {
 });
 
 // PUT update internship by mentor
-router.put('/:id', audit('internships.update', (req) => ({ internshipId: req.params.id })), async (req, res) => {
+router.put('/:id', audit('internships.update', (req, res) => res.locals.auditDetails || {
+  internshipId: req.params.id,
+}), async (req, res) => {
   try {
     const Internship = getInternshipModel(getYearDb(req.year));
     // Whitelisted: cannot change UID, evaluation marks, or group assignment.
-    const internship = await Internship.findByIdAndUpdate(
-      req.params.id,
-      { $set: pickAllowed(req.body, UPDATE_FIELDS) },
-      { new: true, runValidators: true }
-    );
-    
-    if (!internship) {
+    // Every changed field is audited with its old and new value.
+    const result = await updateStudentWithChanges(Internship, req.params.id, pickAllowed(req.body, UPDATE_FIELDS));
+    if (!result) {
       return res.status(404).json({ success: false, message: 'Internship not found' });
     }
-    
-    res.json({ success: true, data: internship });
+
+    res.locals.auditDetails = { internshipId: req.params.id, uid: result.uid, changes: result.changes };
+    res.json({ success: true, data: result.doc });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
 });
 
 // PUT update performance metrics
-router.put('/:id/performance', async (req, res) => {
+router.put('/:id/performance', audit('internships.performance-update', (req) => ({ internshipId: req.params.id })), async (req, res) => {
   try {
     const Internship = getInternshipModel(getYearDb(req.year));
     const { performanceMetrics } = req.body;
@@ -69,7 +69,7 @@ router.put('/:id/performance', async (req, res) => {
 });
 
 // POST add attendance record
-router.post('/:id/attendance', async (req, res) => {
+router.post('/:id/attendance', audit('internships.attendance-add', (req) => ({ internshipId: req.params.id, date: req.body?.date, status: req.body?.status })), async (req, res) => {
   try {
     const Internship = getInternshipModel(getYearDb(req.year));
     const { date, status } = req.body;

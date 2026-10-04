@@ -1,6 +1,7 @@
 const express = require('express');
 const { getYearDb } = require('../db/connection');
 const { getMailDraftModel } = require('../models/MailDraft');
+const { audit } = require('../middleware/audit');
 
 const router = express.Router();
 
@@ -34,7 +35,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/mail-draft
-router.post('/', async (req, res) => {
+router.post('/', audit('mail-draft.update', (req) => ({ subject: String(req.body?.subject || '').slice(0, 120) })), async (req, res) => {
   try {
     const { subject, body, evaluationLink } = req.body;
 

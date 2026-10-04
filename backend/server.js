@@ -26,6 +26,7 @@ const senderEmailsRoutes = require('./routes/sender-emails');
 const evaluationSettingsRoutes = require('./routes/evaluation-settings');
 const authRoutes = require('./routes/auth');
 const yearSettingsRoutes = require('./routes/year-settings');
+const auditLogRoutes = require('./routes/audit-logs');
 
 // Load .env from root directory or backend directory
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
@@ -180,6 +181,7 @@ app.use('/api/mail-draft', mailDraftRoutes);
 app.use('/api/sender-emails', senderEmailsRoutes);
 app.use('/api/evaluation-settings', evaluationSettingsRoutes);
 app.use('/api/year-settings', yearSettingsRoutes);
+app.use('/api/audit-logs', auditLogRoutes);
 
 // Unmatched API routes return JSON, never stray HTML.
 app.use('/api', notFoundHandler);

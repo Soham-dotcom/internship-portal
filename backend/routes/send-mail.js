@@ -337,7 +337,7 @@ router.post('/', audit('mail.send-group', (req) => ({
 });
 
 // POST /api/send-mail/:groupId (backwards compatible; accepts optional body)
-router.post('/:groupId', async (req, res) => {
+router.post('/:groupId', audit('mail.send-group', (req) => ({ groupId: req.params.groupId, recipientType: req.body?.recipientType })), async (req, res) => {
   try {
     const { groupId } = req.params;
     const { recipientType, senderEmailId, evaluationLink } = req.body || {};

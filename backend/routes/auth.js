@@ -21,7 +21,12 @@ router.get('/config', (req, res) => {
   res.json({ success: true, data: { years } });
 });
 
-router.post('/login', async (req, res, next) => {
+// Every sign-in attempt is audited (success or failure), so repeated guessing
+// against an account is visible. Passwords are never recorded.
+router.post('/login', audit('auth.login', (req, res) => ({
+  username: String(req.body?.username || '').trim().slice(0, 100),
+  outcome: res.statusCode < 400 ? 'success' : `failed (${res.statusCode})`,
+})), async (req, res, next) => {
   try {
     const { username, password, year } = req.body || {};
     if (!username || !password || !year) {

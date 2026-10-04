@@ -1,12 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const { getYearDb, withTransaction } = require('../db/connection');
+const { getYearDb, getSharedDb, withTransaction } = require('../db/connection');
+const { getAuditLogModel } = require('../models/AuditLog');
+const { getImportBatchModel } = require('../models/ImportBatch');
 const { getInternshipModel } = require('../models/Internship');
 const { getGroupModel } = require('../models/Group');
 const { containsRegex, exactRegex } = require('../utils/escapeRegex');
 const { audit } = require('../middleware/audit');
 const { requireRole } = require('../middleware/auth');
 const { ensureMarksWritable } = require('../middleware/locks');
+const { updateStudentWithChanges } = require('../utils/changes');
 const { pickAllowed, CREATE_FIELDS, UPDATE_FIELDS } = require('../utils/allowedFields');
 const { validateMarksUpdate, MARK_FIELDS } = require('../utils/marks');
 const mongoose = require('mongoose');
@@ -133,7 +136,7 @@ router.get('/evaluation-overview', async (req, res) => {
 
 
 // POST create new internship
-router.post('/', async (req, res) => {
+router.post('/', audit('internships.create', (req) => ({ uid: String(req.body?.uid || '') })), async (req, res) => {
   try {
     const Internship = getInternshipModel(getYearDb(req.year));
     // Whitelisted: evaluation marks and group assignment are not settable here.
@@ -152,23 +155,19 @@ router.post('/', async (req, res) => {
 });
 
 // PUT update internship
-router.put('/:id', audit('internships.update', (req) => ({
+router.put('/:id', audit('internships.update', (req, res) => res.locals.auditDetails || {
   internshipId: req.params.id,
-  fields: Object.keys(pickAllowed(req.body, UPDATE_FIELDS)),
-})), async (req, res) => {
+}), async (req, res) => {
   try {
     const Internship = getInternshipModel(getYearDb(req.year));
     // Whitelisted: a record edit cannot change the UID, evaluation marks, or
-    // group assignment.
-    const internship = await Internship.findByIdAndUpdate(
-      req.params.id,
-      { $set: pickAllowed(req.body, UPDATE_FIELDS) },
-      { new: true, runValidators: true }
-    );
-    if (!internship) {
+    // group assignment. Every changed field is audited with its old and new value.
+    const result = await updateStudentWithChanges(Internship, req.params.id, pickAllowed(req.body, UPDATE_FIELDS));
+    if (!result) {
       return res.status(404).json({ success: false, message: 'Internship not found' });
     }
-    res.json({ success: true, data: internship });
+    res.locals.auditDetails = { internshipId: req.params.id, uid: result.uid, changes: result.changes };
+    res.json({ success: true, data: result.doc });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -357,6 +356,88 @@ router.delete('/:id/permanent', requireRole('admin'), audit('internships.delete-
   }
 });
 
+
+// Readable names for the actions that can appear in a student's history.
+const HISTORY_LABELS = {
+  'internships.create': 'Record created',
+  'internships.update': 'Details edited',
+  'internships.marks-update': 'Marks edited',
+  'internships.delete': 'Moved to Recycle Bin',
+  'internships.restore': 'Restored from Recycle Bin',
+  'marks-import.meeting-attendance': 'Meeting attendance imported',
+  'marks-import.final-report': 'Final report imported',
+  'marks-import.external-marks': 'Industry evaluator marks imported',
+  'marks-import.external-viva-marks': 'External viva marks imported',
+  'marks-import.internal-viva-marks': 'Internal viva marks imported',
+};
+
+// GET one student's change history: who changed what, when, from what, to what.
+//
+// Built from the audit log (edits, marks edits and imports, delete/restore) plus the
+// import records (details changed or added by a spreadsheet import). Visible to
+// staff and admins; students in the Recycle Bin are included so a restore can be
+// reviewed.
+router.get('/:id/history', async (req, res, next) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid student id' });
+    }
+
+    const db = getYearDb(req.year);
+    const student = await getInternshipModel(db).findById(req.params.id)
+      .setOptions({ withDeleted: true })
+      .select('uid name createdAt')
+      .lean();
+    if (!student) {
+      return res.status(404).json({ success: false, message: 'Student not found' });
+    }
+
+    const [entries, batches] = await Promise.all([
+      getAuditLogModel(getSharedDb()).find({
+        year: String(req.year),
+        success: true,
+        $or: [
+          { 'details.internshipId': req.params.id },
+          { 'details.uid': student.uid },
+          { 'details.changes.uid': student.uid },
+        ],
+      }).sort({ createdAt: -1 }).limit(200).lean(),
+      getImportBatchModel(db).find({
+        $or: [{ 'updates.uid': student.uid }, { insertedIds: student._id }],
+      }).sort({ createdAt: -1 }).limit(50).lean(),
+    ]);
+
+    const fromAudit = entries.map((entry) => {
+      // A bulk marks import lists many students; keep only this one's change.
+      const changes = (entry.details?.changes || [])
+        .filter((c) => !c.uid || c.uid === student.uid)
+        .map((c) => (c.field ? c : { field: entry.details.field, from: c.from, to: c.to }));
+      return {
+        at: entry.createdAt,
+        by: entry.actorUsername,
+        action: HISTORY_LABELS[entry.action] || entry.action,
+        changes,
+        reason: entry.details?.lockOverride?.reason || null,
+      };
+    });
+
+    const fromImports = batches.map((batch) => {
+      const update = (batch.updates || []).find((u) => u.uid === student.uid);
+      return {
+        at: batch.createdAt,
+        by: batch.createdBy,
+        action: update ? 'Details updated by spreadsheet import' : 'Added by spreadsheet import',
+        changes: update ? update.diffs.filter((d) => d.field !== 'standardized_company_name') : [],
+        reason: batch.undoneAt ? `This import was undone on ${new Date(batch.undoneAt).toLocaleString()}` : null,
+      };
+    });
+
+    const timeline = [...fromAudit, ...fromImports].sort((a, b) => new Date(b.at) - new Date(a.at));
+    return res.json({ success: true, data: { uid: student.uid, name: student.name, history: timeline } });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 // GET summary statistics
 router.get('/stats/summary', async (req, res) => {

@@ -9,7 +9,7 @@ const { getMentorModel } = require('../models/Mentor');
 const { getInternalMentorModel } = require('../models/InternalMentor');
 const { containsRegex, exactRegex } = require('../utils/escapeRegex');
 const { requireRole } = require('../middleware/auth');
-const { audit } = require('../middleware/audit');
+const { audit, recordAudit } = require('../middleware/audit');
 const { conflict } = require('../middleware/errorHandler');
 const { randomUUID } = require('crypto');
 
@@ -128,7 +128,13 @@ const planGroups = (students, { groupSize, numGroups, randomize, existingNumbers
 // first and the groups inserted second, so a failure in between left students
 // "assigned" to groups that did not exist, and two people generating at the same
 // moment could put the same student in two groups.
-router.post('/generate', async (req, res, next) => {
+router.post('/generate', (req, res, next) => {
+  // Only saving groups is an audited change; a preview writes nothing.
+  if (req.body?.assignToGroups) {
+    recordAudit(req, res, 'groups.generate', () => ({ groupCount: res.locals.groupCount, studentCount: res.locals.studentCount }));
+  }
+  next();
+}, async (req, res, next) => {
   const {
     filters = {},
     groupSize = 5,
@@ -201,6 +207,9 @@ router.post('/generate', async (req, res, next) => {
       const { status, ...body } = outcome.error;
       return res.status(status).json({ success: false, ...body });
     }
+
+    res.locals.groupCount = outcome.groups.length;
+    res.locals.studentCount = outcome.totalStudents;
 
     return res.json({
       success: true,
@@ -686,7 +695,7 @@ router.post('/export-random', async (req, res) => {
 });
 
 // POST allocate external mentors to all groups - AVOID DUPLICATES when possible
-router.post('/allocate-all-external', async (req, res) => {
+router.post('/allocate-all-external', audit('groups.allocate-all-external'), async (req, res) => {
   try {
     const { Group, Mentor } = getModels(req);
     // Get all groups that don't have an external mentor
@@ -758,7 +767,7 @@ router.post('/allocate-all-external', async (req, res) => {
 });
 
 // POST allocate a random external mentor to a specific group
-router.post('/:id/allocate-external-mentor', async (req, res) => {
+router.post('/:id/allocate-external-mentor', audit('groups.allocate-external-mentor', (req) => ({ groupId: req.params.id })), async (req, res) => {
   try {
     const { Group, Mentor } = getModels(req);
     const groupId = req.params.id;
@@ -816,7 +825,7 @@ router.post('/:id/allocate-external-mentor', async (req, res) => {
 });
 
 // POST allocate internal mentors to all groups - AVOID DUPLICATES when possible
-router.post('/allocate-all-internal', async (req, res) => {
+router.post('/allocate-all-internal', audit('groups.allocate-all-internal'), async (req, res) => {
   try {
     const { Group, InternalMentor } = getModels(req);
     // Get all groups that don't have an internal mentor
@@ -888,7 +897,7 @@ router.post('/allocate-all-internal', async (req, res) => {
 });
 
 // POST allocate a random internal mentor to a specific group
-router.post('/:id/allocate-internal-mentor', async (req, res) => {
+router.post('/:id/allocate-internal-mentor', audit('groups.allocate-internal-mentor', (req) => ({ groupId: req.params.id })), async (req, res) => {
   try {
     const { Group, InternalMentor } = getModels(req);
     const groupId = req.params.id;
@@ -1069,7 +1078,7 @@ router.get('/search', async (req, res) => {
 });
 
 // POST sync mentor assignments (cleanup orphaned assignments for both external and internal mentors)
-router.post('/sync-mentors', async (req, res) => {
+router.post('/sync-mentors', audit('groups.sync-mentors'), async (req, res) => {
   try {
     const { Group, Mentor, InternalMentor } = getModels(req);
     // Sync External Mentors
@@ -1143,7 +1152,7 @@ router.post('/sync-mentors', async (req, res) => {
 });
 
 // PUT update group (edit group details)
-router.put('/:groupId/assign-mentor', async (req, res) => {
+router.put('/:groupId/assign-mentor', audit('groups.assign-mentor', (req) => ({ groupId: req.params.groupId, mentorId: req.body?.mentorId, mentorType: req.body?.mentorType })), async (req, res) => {
   try {
     const { Group, Mentor, InternalMentor } = getModels(req);
     const { groupId } = req.params;
@@ -1316,7 +1325,7 @@ router.put('/:groupId/assign-mentor', async (req, res) => {
 });
 
 // PUT update group (edit group details)
-router.put('/:id', async (req, res) => {
+router.put('/:id', audit('groups.update', (req) => ({ groupId: req.params.id, fields: Object.keys(req.body || {}) })), async (req, res) => {
   try {
     // Mentor and InternalMentor are used further down when reassigning mentors.
     // They were previously missing from this destructure, which made every mentor
