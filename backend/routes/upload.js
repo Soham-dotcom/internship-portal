@@ -12,6 +12,7 @@ const { normalizeCompanyName } = require('../utils/companyNormalization');
 const { requireRole } = require('../middleware/auth');
 const { audit } = require('../middleware/audit');
 const { pickAllowed, rejectedFields, IMPORT_FIELDS } = require('../utils/allowedFields');
+const { MARKS_IMPORTS, UID_COLUMNS, planMarksImport } = require('../utils/marksImport');
 
 // Configure multer for file upload.
 // Files are held in memory and parsed by SheetJS, so an unbounded upload is a
@@ -91,14 +92,6 @@ const parseIntSafe = (value) => {
   return Number.isNaN(parsed) ? null : parsed;
 };
 
-const parseBooleanInt = (value) => {
-  const cleaned = String(value ?? '').trim().toLowerCase();
-  if (cleaned === '') return null;
-  if (['1', 'true', 'yes', 'y'].includes(cleaned)) return 1;
-  if (['0', 'false', 'no', 'n'].includes(cleaned)) return 0;
-  return null;
-};
-
 const hasAnyColumn = (headers, options) => options.some((key) => headers.has(normalizeKey(key)));
 
 const getModels = (req) => {
@@ -163,83 +156,102 @@ router.post('/excel', handleUpload('file'), async (req, res) => {
   }
 });
 
-// POST evaluation: meeting attendance
-router.post('/evaluation/meeting-attendance', handleUpload('file'), async (req, res) => {
-  try {
-    const { Internship } = getModels(req);
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
-    }
+// POST evaluation: the five single-field marks imports
+// (meeting attendance, final report, external marks, external viva, internal viva).
+//
+// All-or-nothing on values: if ANY row holds an invalid mark, the whole file is
+// rejected and nothing changes, so a sheet with one typo never half-updates a class.
+// UIDs not found in this year are skipped and reported, because evaluation sheets
+// often include students from other lists. Every changed mark is audited with its
+// old and new value.
+Object.entries(MARKS_IMPORTS).forEach(([type, config]) => {
+  router.post(
+    `/evaluation/${type}`,
+    handleUpload('file'),
+    audit(`marks-import.${type}`, (req, res) => res.locals.auditDetails || {}),
+    async (req, res, next) => {
+      try {
+        const { Internship } = getModels(req);
+        if (!req.file) {
+          return res.status(400).json({ success: false, message: 'No file uploaded' });
+        }
 
-    const rows = parseExcelBuffer(req.file.buffer);
-    if (rows.length === 0) {
-      return res.status(400).json({ success: false, message: 'Excel file is empty' });
-    }
+        const rows = parseExcelBuffer(req.file.buffer);
+        if (rows.length === 0) {
+          return res.status(400).json({ success: false, message: 'Excel file is empty' });
+        }
 
-    const headers = getHeaderSet(rows);
-    const missing = getMissingColumns(headers, ['uid']);
-    if (missing.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Missing required columns: ${missing.join(', ')}`
-      });
-    }
-    if (!hasAnyColumn(headers, ['meeting_attended', 'meeting attended', 'meeting'])) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required column: meeting_attended'
-      });
-    }
+        const headers = getHeaderSet(rows);
+        if (!hasAnyColumn(headers, UID_COLUMNS) || !hasAnyColumn(headers, config.columns)) {
+          return res.status(400).json({
+            success: false,
+            message: `The sheet needs a UID column and one of these columns: ${config.columns.join(', ')}`,
+          });
+        }
 
-    let updated = 0;
-    let skipped = 0;
-    const errors = [];
+        const plan = planMarksImport(rows, config);
+        if (plan.invalid.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: `Nothing was imported: ${plan.invalid.length} row(s) have invalid values. Fix them and upload the file again.`,
+            errors: plan.invalid.slice(0, 50),
+            invalidCount: plan.invalid.length,
+          });
+        }
 
-    for (let i = 0; i < rows.length; i += 1) {
-      const row = getRowMap(rows[i]);
-      const uid = row['uid'] || row['roll no'] || row['rollno'] || row['student uid'] || '';
-      if (!uid) {
-        skipped += 1;
-        errors.push(`Row ${i + 1}: Missing UID`);
-        continue;
+        const uids = plan.updates.map((u) => u.uid);
+        const existing = await Internship.find({ uid: { $in: uids } }).select(`uid ${config.field}`).lean();
+        const current = new Map(existing.map((doc) => [doc.uid, doc[config.field]]));
+
+        const notFound = uids.filter((uid) => !current.has(uid));
+        const changes = plan.updates
+          .filter((u) => current.has(u.uid) && current.get(u.uid) !== u.value)
+          .map((u) => ({ uid: u.uid, from: current.get(u.uid) ?? null, to: u.value }));
+
+        if (changes.length > 0) {
+          await Internship.bulkWrite(changes.map((c) => ({
+            updateOne: { filter: { uid: c.uid }, update: { $set: { [config.field]: c.to } } },
+          })));
+        }
+
+        res.locals.auditDetails = {
+          field: config.field,
+          rows: rows.length,
+          changed: changes.length,
+          notFound: notFound.length,
+          changes,
+        };
+
+        const unchanged = plan.updates.length - notFound.length - changes.length;
+        const skipped = notFound.length + plan.blank.length + plan.missingUid.length;
+        const notes = [
+          ...notFound.map((uid) => `UID ${uid}: Not found in this year`),
+          ...plan.missingUid.map((row) => `Row ${row}: Missing UID`),
+          ...plan.blank.map((uid) => `UID ${uid}: No value in the sheet, left unchanged`),
+        ];
+
+        return res.json({
+          success: true,
+          message: `Processed ${rows.length} rows. ${changes.length} changed, ${unchanged} already up to date, ${skipped} skipped`,
+          total: rows.length,
+          updated: changes.length + unchanged,
+          changed: changes.length,
+          unchanged,
+          skipped,
+          errors: notes.length > 0 ? notes.slice(0, 10) : undefined,
+        });
+      } catch (error) {
+        return next(error);
       }
-
-      const value = row['meeting_attended'] ?? row['meeting attended'] ?? row['meeting'] ?? '';
-      const meeting_attended = parseBooleanInt(value);
-      if (meeting_attended === null) {
-        skipped += 1;
-        errors.push(`UID ${uid}: Invalid meeting_attended value`);
-        continue;
-      }
-
-      const result = await Internship.updateOne(
-        { uid: String(uid).trim() },
-        { $set: { meeting_attended } }
-      );
-
-      if (result.matchedCount === 0) {
-        skipped += 1;
-        errors.push(`UID ${uid}: Not found`);
-      } else {
-        updated += 1;
-      }
     }
-
-    return res.json({
-      success: true,
-      message: `Processed ${rows.length} rows. ${updated} updated, ${skipped} skipped`,
-      total: rows.length,
-      updated,
-      skipped,
-      errors: errors.length > 0 ? errors.slice(0, 10) : undefined
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
+  );
 });
 
+
 // POST evaluation: weekly reports (merge)
-router.post('/evaluation/weekly-reports', handleUpload('file'), async (req, res) => {
+router.post('/evaluation/weekly-reports', handleUpload('file'), audit('marks-import.weekly-reports', (req, res) => ({
+  updated: res.locals.weeklyUpdated,
+})), async (req, res) => {
   try {
     const { Internship } = getModels(req);
     if (!req.file) {
@@ -319,6 +331,7 @@ router.post('/evaluation/weekly-reports', handleUpload('file'), async (req, res)
       updated += 1;
     }
 
+    res.locals.weeklyUpdated = updated;
     return res.json({
       success: true,
       message: `Processed ${rows.length} rows. ${updated} updated, ${skipped} skipped`,
@@ -326,315 +339,6 @@ router.post('/evaluation/weekly-reports', handleUpload('file'), async (req, res)
       updated,
       skipped,
       weeks,
-      errors: errors.length > 0 ? errors.slice(0, 10) : undefined
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// POST evaluation: final report
-router.post('/evaluation/final-report', handleUpload('file'), async (req, res) => {
-  try {
-    const { Internship } = getModels(req);
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
-    }
-
-    const rows = parseExcelBuffer(req.file.buffer);
-    if (rows.length === 0) {
-      return res.status(400).json({ success: false, message: 'Excel file is empty' });
-    }
-
-    const headers = getHeaderSet(rows);
-    const missing = getMissingColumns(headers, ['uid']);
-    if (missing.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Missing required columns: ${missing.join(', ')}`
-      });
-    }
-    if (!hasAnyColumn(headers, ['final_report', 'final report', 'final_report_submitted'])) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required column: final_report'
-      });
-    }
-
-    let updated = 0;
-    let skipped = 0;
-    const errors = [];
-
-    for (let i = 0; i < rows.length; i += 1) {
-      const row = getRowMap(rows[i]);
-      const uid = row['uid'] || row['roll no'] || row['rollno'] || row['student uid'] || '';
-      if (!uid) {
-        skipped += 1;
-        errors.push(`Row ${i + 1}: Missing UID`);
-        continue;
-      }
-
-      const value = row['final_report'] ?? row['final report'] ?? row['final_report_submitted'] ?? '';
-      const final_report_submitted = parseBooleanInt(value);
-      if (final_report_submitted === null) {
-        skipped += 1;
-        errors.push(`UID ${uid}: Invalid final_report value`);
-        continue;
-      }
-
-      const result = await Internship.updateOne(
-        { uid: String(uid).trim() },
-        { $set: { final_report_submitted } }
-      );
-
-      if (result.matchedCount === 0) {
-        skipped += 1;
-        errors.push(`UID ${uid}: Not found`);
-      } else {
-        updated += 1;
-      }
-    }
-
-    return res.json({
-      success: true,
-      message: `Processed ${rows.length} rows. ${updated} updated, ${skipped} skipped`,
-      total: rows.length,
-      updated,
-      skipped,
-      errors: errors.length > 0 ? errors.slice(0, 10) : undefined
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// POST evaluation: external mentor marks
-router.post('/evaluation/external-marks', handleUpload('file'), async (req, res) => {
-  try {
-    const { Internship } = getModels(req);
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
-    }
-
-    const rows = parseExcelBuffer(req.file.buffer);
-    if (rows.length === 0) {
-      return res.status(400).json({ success: false, message: 'Excel file is empty' });
-    }
-
-    const headers = getHeaderSet(rows);
-    const missing = getMissingColumns(headers, ['uid']);
-    if (missing.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Missing required columns: ${missing.join(', ')}`
-      });
-    }
-
-    let updated = 0;
-    let skipped = 0;
-    const errors = [];
-
-    for (let i = 0; i < rows.length; i += 1) {
-      const row = getRowMap(rows[i]);
-      const uid = row['uid'] || row['roll no'] || row['rollno'] || row['student uid'] || '';
-      if (!uid) {
-        skipped += 1;
-        errors.push(`Row ${i + 1}: Missing UID`);
-        continue;
-      }
-
-      const marks = parseIntSafe(row['marks'] ?? row['external_marks'] ?? row['external marks'] ?? '');
-      if (marks === null) {
-        skipped += 1;
-        errors.push(`UID ${uid}: Invalid marks value`);
-        continue;
-      }
-
-      const result = await Internship.updateOne(
-        { uid: String(uid).trim() },
-        { $set: { external_marks: marks } }
-      );
-
-      if (result.matchedCount === 0) {
-        skipped += 1;
-        errors.push(`UID ${uid}: Not found`);
-      } else {
-        updated += 1;
-      }
-    }
-
-    return res.json({
-      success: true,
-      message: `Processed ${rows.length} rows. ${updated} updated, ${skipped} skipped`,
-      total: rows.length,
-      updated,
-      skipped,
-      errors: errors.length > 0 ? errors.slice(0, 10) : undefined
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// POST evaluation: external viva marks
-router.post('/evaluation/external-viva-marks', handleUpload('file'), async (req, res) => {
-  try {
-    const { Internship } = getModels(req);
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
-    }
-
-    const rows = parseExcelBuffer(req.file.buffer);
-    if (rows.length === 0) {
-      return res.status(400).json({ success: false, message: 'Excel file is empty' });
-    }
-
-    const headers = getHeaderSet(rows);
-    const missing = getMissingColumns(headers, ['uid']);
-    const hasMarks = hasAnyColumn(headers, [
-      'marks',
-      'external_viva_marks',
-      'external viva marks',
-      'external viva',
-      'external_viva'
-    ]);
-    if (missing.length > 0 || !hasMarks) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required columns: uid and marks'
-      });
-    }
-
-    let updated = 0;
-    let skipped = 0;
-    const errors = [];
-
-    for (let i = 0; i < rows.length; i += 1) {
-      const row = getRowMap(rows[i]);
-      const uid = row['uid'] || row['roll no'] || row['rollno'] || row['student uid'] || '';
-      if (!uid) {
-        skipped += 1;
-        errors.push(`Row ${i + 1}: Missing UID`);
-        continue;
-      }
-
-      const externalMarks = parseIntSafe(
-        row['external_viva_marks']
-        ?? row['external viva marks']
-        ?? row['external viva']
-        ?? row['external_viva']
-        ?? row['marks']
-        ?? ''
-      );
-
-      if (externalMarks === null) {
-        skipped += 1;
-        errors.push(`UID ${uid}: Invalid marks value`);
-        continue;
-      }
-
-      const result = await Internship.updateOne(
-        { uid: String(uid).trim() },
-        { $set: { external_viva_marks: externalMarks } }
-      );
-
-      if (result.matchedCount === 0) {
-        skipped += 1;
-        errors.push(`UID ${uid}: Not found`);
-      } else {
-        updated += 1;
-      }
-    }
-
-    return res.json({
-      success: true,
-      message: `Processed ${rows.length} rows. ${updated} updated, ${skipped} skipped`,
-      total: rows.length,
-      updated,
-      skipped,
-      errors: errors.length > 0 ? errors.slice(0, 10) : undefined
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// POST evaluation: internal viva marks
-router.post('/evaluation/internal-viva-marks', handleUpload('file'), async (req, res) => {
-  try {
-    const { Internship } = getModels(req);
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
-    }
-
-    const rows = parseExcelBuffer(req.file.buffer);
-    if (rows.length === 0) {
-      return res.status(400).json({ success: false, message: 'Excel file is empty' });
-    }
-
-    const headers = getHeaderSet(rows);
-    const missing = getMissingColumns(headers, ['uid']);
-    const hasMarks = hasAnyColumn(headers, [
-      'marks',
-      'internal_viva_marks',
-      'internal viva marks',
-      'internal viva',
-      'internal_viva'
-    ]);
-    if (missing.length > 0 || !hasMarks) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required columns: uid and marks'
-      });
-    }
-
-    let updated = 0;
-    let skipped = 0;
-    const errors = [];
-
-    for (let i = 0; i < rows.length; i += 1) {
-      const row = getRowMap(rows[i]);
-      const uid = row['uid'] || row['roll no'] || row['rollno'] || row['student uid'] || '';
-      if (!uid) {
-        skipped += 1;
-        errors.push(`Row ${i + 1}: Missing UID`);
-        continue;
-      }
-
-      const internalMarks = parseIntSafe(
-        row['internal_viva_marks']
-        ?? row['internal viva marks']
-        ?? row['internal viva']
-        ?? row['internal_viva']
-        ?? row['marks']
-        ?? ''
-      );
-
-      if (internalMarks === null) {
-        skipped += 1;
-        errors.push(`UID ${uid}: Invalid marks value`);
-        continue;
-      }
-
-      const result = await Internship.updateOne(
-        { uid: String(uid).trim() },
-        { $set: { internal_viva_marks: internalMarks } }
-      );
-
-      if (result.matchedCount === 0) {
-        skipped += 1;
-        errors.push(`UID ${uid}: Not found`);
-      } else {
-        updated += 1;
-      }
-    }
-
-    return res.json({
-      success: true,
-      message: `Processed ${rows.length} rows. ${updated} updated, ${skipped} skipped`,
-      total: rows.length,
-      updated,
-      skipped,
       errors: errors.length > 0 ? errors.slice(0, 10) : undefined
     });
   } catch (error) {

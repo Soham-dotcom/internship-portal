@@ -105,7 +105,14 @@ const EvaluationMatrixUpload = () => {
         setMessage({ type: 'error', text: response.data.message || 'Upload failed' });
       }
     } catch (error) {
-      setMessage({ type: 'error', text: error.response?.data?.message || error.message });
+      // A rejected sheet lists the rows to fix; nothing was saved.
+      const data = error.response?.data;
+      let text = data?.message || error.message;
+      if (data?.errors?.length > 0) {
+        const more = data.invalidCount > data.errors.length ? `\n…and ${data.invalidCount - data.errors.length} more` : '';
+        text += '\n\nRows to fix:\n' + data.errors.join('\n') + more;
+      }
+      setMessage({ type: 'error', text });
     } finally {
       setLoading(false);
     }

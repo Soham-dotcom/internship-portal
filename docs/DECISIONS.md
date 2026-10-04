@@ -5,6 +5,30 @@ Newest first.
 
 ---
 
+## 2026-10-05: Marks imports are all-or-nothing on values
+
+**What.** The five single-field marks imports share one handler built on a pure, tested
+planner (`utils/marksImport.js`). If any row holds an invalid mark (out of range, not a
+number, or the same UID twice with different values), the whole file is rejected with a list
+of the rows to fix, and nothing is written. UIDs not found in the year are skipped and
+reported. Blank cells leave the mark unchanged. Every changed mark is audited as
+`{uid, from, to}`. Writes use one `bulkWrite` instead of one round trip per row.
+
+**Why.** Before, each row was validated only loosely (`parseInt`, no range), and bad rows
+were skipped while good rows were saved. A sheet with one typo half-updated the class, and
+`parseInt` silently turned 32.5 into 32. Rejecting the file is easier to reason about: either
+the sheet went in, or nothing did.
+
+**Alternatives rejected.** *Skip bad rows, save the rest* (the old behaviour) leaves the
+coordinator unsure which marks are current. *Reject on unknown UIDs too* is too strict: sheets
+are often shared across lists.
+
+**Bug found while testing.** A helper used `String(value || '')`, which turns the number `0`
+into an empty string, so a "did not attend = 0" cell would have been treated as blank. Fixed
+with `??`.
+
+---
+
 ## 2026-10-05: Backups: our own Node script + GitHub Actions, encrypted
 
 **What.** `backend/scripts/backup.js` dumps every portal database (documents + index definitions)
