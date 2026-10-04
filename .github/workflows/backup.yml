@@ -1,0 +1,54 @@
+# Nightly encrypted backup of every portal database.
+#
+# Atlas's free tier has no backups of its own, so this is the safety net.
+# Each run uploads one AES-256-GCM encrypted file as a workflow artifact kept for
+# 30 days. Restore steps: docs/RUNBOOK.md.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   BACKUP_MONGODB_URI   connection string for a READ-ONLY Atlas user
+#   BACKUP_PASSPHRASE    16+ characters; store a copy somewhere safe, it cannot be recovered
+# Optional repository variable:
+#   ACADEMIC_YEARS       e.g. 2025,2026,2027 (defaults to the app's own default)
+
+name: Nightly database backup
+
+on:
+  schedule:
+    - cron: '30 20 * * *' # 02:00 IST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Production dependencies only: the backup needs mongoose, nothing else.
+      - run: npm ci --omit=dev
+
+      - name: Back up
+        env:
+          MONGODB_URI: ${{ secrets.BACKUP_MONGODB_URI }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          ACADEMIC_YEARS: ${{ vars.ACADEMIC_YEARS }}
+        run: node backend/scripts/backup.js --out backups --require-encryption
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portal-backup-${{ github.run_number }}
+          path: backups/*.enc
+          retention-days: 30
+          if-no-files-found: error
