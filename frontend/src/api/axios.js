@@ -116,6 +116,13 @@ export const login = (payload) => {
 };
 
 export const logout = () => axiosInstance.post('/auth/logout');
+export const changePassword = (currentPassword, newPassword) => axiosInstance.post('/auth/change-password', { currentPassword, newPassword });
+
+// Account administration (admin only on the server)
+export const listUsers = () => axiosInstance.get('/users');
+export const createUser = (data) => axiosInstance.post('/users', data);
+export const updateUser = (id, data) => axiosInstance.patch(`/users/${id}`, data);
+export const resetUserPassword = (id, newPassword) => axiosInstance.post(`/users/${id}/reset-password`, { newPassword });
 
 // Internships endpoints
 export const getInternships = (filters = {}) => {

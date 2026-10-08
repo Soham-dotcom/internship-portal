@@ -56,10 +56,16 @@ const navigation = [
     items: [
       { name: 'Data Import Center', href: '/upload' },
       { name: 'Evaluation Marks Import', href: '/evaluation-upload' },
-      // Shown to admins only; the server enforces it regardless.
-      { name: 'Recycle Bin', href: '/recycle-bin', adminOnly: true },
+    ],
+  },
+  {
+    // Shown to admins only; the server enforces every one of these regardless.
+    group: 'Administration',
+    items: [
+      { name: 'Users', href: '/users', adminOnly: true },
       { name: 'Locks & Finalisation', href: '/locks', adminOnly: true },
       { name: 'Audit Log', href: '/audit-log', adminOnly: true },
+      { name: 'Recycle Bin', href: '/recycle-bin', adminOnly: true },
     ],
   },
 ];
@@ -139,7 +145,7 @@ const Layout = ({ children }) => {
 
         {/* Nav groups */}
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
-          {navigation.map((section) => (
+          {navigation.filter((section) => section.items.some((item) => !item.adminOnly || role === 'admin')).map((section) => (
             <div key={section.group}>
               <p className="px-3 mb-1 text-xs font-semibold text-slate-500 uppercase tracking-widest">
                 {section.group}
@@ -217,6 +223,7 @@ const Layout = ({ children }) => {
                   {role === 'admin' ? 'Admin' : 'Staff'}
                 </span>
                 {year && <span className="hidden sm:inline px-2 py-0.5 rounded bg-slate-100">Year {year}</span>}
+                <Link to="/account" className="px-2 py-0.5 rounded hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500">My Account</Link>
                 <button
                   type="button"
                   onClick={async () => {

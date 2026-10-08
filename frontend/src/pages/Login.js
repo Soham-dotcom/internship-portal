@@ -7,6 +7,7 @@ import { safeNextPath, setAuthSession } from '../auth/session';
 const REASON_MESSAGES = {
   expired: 'Your session has ended. Sign in again to continue where you left off.',
   'signed-out': 'You have been signed out.',
+  'password-changed': 'Your password was changed. Sign in with your new password.',
 };
 
 const Login = () => {

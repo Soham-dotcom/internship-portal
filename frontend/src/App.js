@@ -17,6 +17,8 @@ import AllMentors from './pages/AllMentors';
 import RecycleBin from './pages/RecycleBin';
 import Locks from './pages/Locks';
 import AuditLog from './pages/AuditLog';
+import Account from './pages/Account';
+import Users from './pages/Users';
 
 function App() {
   return (
@@ -39,6 +41,8 @@ function App() {
           <Route path="/recycle-bin" element={<RecycleBin />} />
           <Route path="/locks" element={<Locks />} />
           <Route path="/audit-log" element={<AuditLog />} />
+          <Route path="/account" element={<Account />} />
+          <Route path="/users" element={<Users />} />
         </Route>
       </Routes>
     </Router>
