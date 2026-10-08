@@ -100,6 +100,45 @@ describe('session lifecycle', () => {
     expect(res.status).toBe(401);
   });
 
+  describe('change password', () => {
+    const NEW_PASSWORD = 'a brand new long passphrase';
+    const change = (app, token, body) => request(app)
+      .post('/api/auth/change-password').set('Authorization', `Bearer ${token}`).send(body);
+
+    it('refuses a wrong current password and changes nothing', async () => {
+      const app = buildApp();
+      const { body } = await login(app);
+      const res = await change(app, body.data.token, { currentPassword: 'wrong guess here', newPassword: NEW_PASSWORD });
+      expect(res.status).toBe(400);
+      expect((await login(app)).status).toBe(200); // old password still works
+    });
+
+    it('refuses a weak new password', async () => {
+      const app = buildApp();
+      const { body } = await login(app);
+      const res = await change(app, body.data.token, { currentPassword: PASSWORD, newPassword: 'short' });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/12/);
+    });
+
+    it('changes the password and signs out every existing session', async () => {
+      const app = buildApp();
+      const { body } = await login(app);
+      const res = await change(app, body.data.token, { currentPassword: PASSWORD, newPassword: NEW_PASSWORD });
+      expect(res.status).toBe(200);
+
+      expect((await request(app).get('/api/me').set('Authorization', `Bearer ${body.data.token}`)).status).toBe(401);
+      expect((await login(app)).status).toBe(401); // old password no longer works
+      const fresh = await request(app).post('/api/auth/login').send({ username: 'alice', password: NEW_PASSWORD, year: '2026' });
+      expect(fresh.status).toBe(200);
+    });
+
+    it('requires being signed in', async () => {
+      const res = await request(buildApp()).post('/api/auth/change-password').send({ currentPassword: PASSWORD, newPassword: NEW_PASSWORD });
+      expect(res.status).toBe(401);
+    });
+  });
+
   it('demoting an admin removes admin access without waiting for token expiry', async () => {
     const app = buildApp();
     const { body } = await login(app);

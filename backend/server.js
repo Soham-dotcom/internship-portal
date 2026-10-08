@@ -27,6 +27,7 @@ const evaluationSettingsRoutes = require('./routes/evaluation-settings');
 const authRoutes = require('./routes/auth');
 const yearSettingsRoutes = require('./routes/year-settings');
 const auditLogRoutes = require('./routes/audit-logs');
+const userRoutes = require('./routes/users');
 
 // Load .env from root directory or backend directory
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
@@ -161,6 +162,8 @@ app.use('/api', (req, res, next) => {
 });
 
 app.use('/api/auth/login', loginLimiter);
+// Change-password checks the current password, so it needs the same guessing protection.
+app.use('/api/auth/change-password', loginLimiter);
 app.use('/api/auth', authRoutes);
 
 // Everything past this point requires a valid token, and the academic year in that
@@ -182,6 +185,7 @@ app.use('/api/sender-emails', senderEmailsRoutes);
 app.use('/api/evaluation-settings', evaluationSettingsRoutes);
 app.use('/api/year-settings', yearSettingsRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
+app.use('/api/users', userRoutes);
 
 // Unmatched API routes return JSON, never stray HTML.
 app.use('/api', notFoundHandler);

@@ -6,6 +6,7 @@ const { getUserModel } = require('../models/User');
 const { parseYears } = require('../config/years');
 const { authRequired } = require('../middleware/auth');
 const { audit } = require('../middleware/audit');
+const { checkPassword, BCRYPT_ROUNDS } = require('../utils/password');
 
 const router = express.Router();
 
@@ -121,6 +122,45 @@ router.post('/login', audit('auth.login', (req, res) => ({
         allowedYears,
       }
     });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+/**
+ * Change your own password. Requires the current password, so someone who only
+ * holds a stolen session cannot lock the real owner out. Every existing session
+ * (including this one) is signed out afterwards.
+ */
+router.post('/change-password', authRequired, audit('auth.change-password', (req, res) => ({
+  outcome: res.statusCode < 400 ? 'success' : `failed (${res.statusCode})`,
+})), async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    const User = getUserModel(getSharedDb());
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Your session has ended. Please sign in again.' });
+    }
+
+    const currentOk = Boolean(user.passwordHash) && await bcrypt.compare(String(currentPassword || ''), user.passwordHash);
+    if (!currentOk) {
+      return res.status(400).json({ success: false, message: 'Your current password is incorrect.' });
+    }
+
+    const problem = checkPassword(newPassword, user.username);
+    if (problem) {
+      return res.status(400).json({ success: false, message: problem });
+    }
+    if (await bcrypt.compare(newPassword, user.passwordHash)) {
+      return res.status(400).json({ success: false, message: 'Choose a password different from the current one.' });
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+    await user.save();
+
+    return res.json({ success: true, message: 'Password changed. Please sign in again with your new password.' });
   } catch (error) {
     return next(error);
   }
