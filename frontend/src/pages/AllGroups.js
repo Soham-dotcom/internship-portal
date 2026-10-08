@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
 import { 
   listGroupsWithMentors, 
   exportGroups, 
@@ -91,20 +92,28 @@ const AllGroups = () => {
       return;
     }
     setSearching(true);
+    // A response for an older query must never overwrite a newer one (or the full
+    // list after the box is cleared), so the in-flight request is cancelled whenever
+    // the query changes.
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const response = await searchGroups(searchQuery);
+        const response = await searchGroups(searchQuery, { signal: controller.signal });
         if (response.data.success) {
           setFilteredGroups(response.data.data);
           setMessage({ type: 'info', text: `Found ${response.data.count} groups matching "${searchQuery}"` });
         }
       } catch (error) {
+        if (axios.isCancel(error)) return; // superseded by a newer search
         setMessage({ type: 'error', text: 'Error searching groups' });
       } finally {
-        setSearching(false);
+        if (!controller.signal.aborted) setSearching(false);
       }
     }, 500);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [searchQuery, groups]);
 
   const toggleGroup = (groupId) => {

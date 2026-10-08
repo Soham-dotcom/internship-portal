@@ -72,9 +72,11 @@ export const allocateInternalMentorToGroup = (groupId) => {
 };
 
 // Search groups by student or mentor name
-export const searchGroups = (query) => {
+// options.signal lets the caller cancel a search that a newer one has superseded.
+export const searchGroups = (query, options = {}) => {
   return axiosInstance.get('/groups/search', {
-    params: { query }
+    params: { query },
+    signal: options.signal,
   });
 };
 
