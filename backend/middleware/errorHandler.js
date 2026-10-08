@@ -5,6 +5,8 @@
  * connection strings) to a browser, while keeping the full detail in server logs.
  */
 
+const { redact } = require('../utils/redact');
+
 const isProduction = () => process.env.NODE_ENV === 'production';
 
 /** An error whose message is safe to show a user. */
@@ -35,7 +37,7 @@ const sanitizeServerErrors = (req, res, next) => {
 
   res.json = (body) => {
     if (res.statusCode >= 500 && body && typeof body === 'object' && body.message) {
-      console.error('[5xx]', req.method, req.originalUrl, '-', body.message);
+      console.error('[5xx]', req.method, req.originalUrl, '-', redact(body.message));
       if (isProduction()) {
         return originalJson({
           ...body,
@@ -64,7 +66,7 @@ const errorHandler = (err, req, res, next) => {
     return res.status(status).json({ success: false, message: err.message });
   }
 
-  console.error('[error]', req.method, req.originalUrl, '-', err.stack || err.message);
+  console.error('[error]', req.method, req.originalUrl, '-', redact(err.stack || err.message));
 
   return res.status(500).json({
     success: false,

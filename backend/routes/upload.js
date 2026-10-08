@@ -16,6 +16,7 @@ const { audit } = require('../middleware/audit');
 const { ensureMarksWritable } = require('../middleware/locks');
 const { MARKS_IMPORTS, UID_COLUMNS, planMarksImport } = require('../utils/marksImport');
 const { planStudentImport, normalize } = require('../utils/studentImport');
+const { redact } = require('../utils/redact');
 
 // Configure multer for file upload.
 // Files are held in memory and parsed by SheetJS, so an unbounded upload is a
@@ -661,8 +662,6 @@ router.post('/mentors', audit('mentors.import-external', (req) => ({ rows: Array
     const { Mentor } = getModels(req);
     const { mentors } = req.body;
 
-    console.log('📥 Mentor import request received');
-    console.log('📊 Count:', mentors?.length || 0);
 
     if (!mentors || !Array.isArray(mentors)) {
       return res.status(400).json({ success: false, message: 'Invalid data format' });
@@ -700,7 +699,7 @@ router.post('/mentors', audit('mentors.import-external', (req) => ({ rows: Array
           updatedCount++;
         }
       } catch (error) {
-        console.error(`❌ Error processing mentor ${mentorData.email}:`, error.message);
+        console.error('[mentor import] row failed:', redact(error.message));
         failedCount++;
         errors.push(`${mentorData.email}: ${error.message}`);
       }
@@ -708,7 +707,6 @@ router.post('/mentors', audit('mentors.import-external', (req) => ({ rows: Array
 
     const totalProcessed = insertedCount + updatedCount;
 
-    console.log(`✅ Mentor import complete: ${insertedCount} inserted, ${updatedCount} updated, ${failedCount} failed`);
 
     res.json({
       success: true,
@@ -720,7 +718,7 @@ router.post('/mentors', audit('mentors.import-external', (req) => ({ rows: Array
       errors: errors.length > 0 ? errors.slice(0, 10) : undefined
     });
   } catch (error) {
-    console.error('❌ Mentor import error:', error);
+    console.error('[mentor import] failed:', redact(error.message));
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -731,8 +729,6 @@ router.post('/internal-mentors', audit('mentors.import-internal', (req) => ({ ro
     const { InternalMentor } = getModels(req);
     const { mentors } = req.body;
 
-    console.log('📥 Internal mentor import request received');
-    console.log('📊 Count:', mentors?.length || 0);
 
     if (!mentors || !Array.isArray(mentors)) {
       return res.status(400).json({ success: false, message: 'Invalid data format' });
@@ -770,7 +766,7 @@ router.post('/internal-mentors', audit('mentors.import-internal', (req) => ({ ro
           updatedCount++;
         }
       } catch (error) {
-        console.error(`❌ Error processing internal mentor ${mentorData.email}:`, error.message);
+        console.error('[internal mentor import] row failed:', redact(error.message));
         failedCount++;
         errors.push(`${mentorData.email}: ${error.message}`);
       }
@@ -778,7 +774,6 @@ router.post('/internal-mentors', audit('mentors.import-internal', (req) => ({ ro
 
     const totalProcessed = insertedCount + updatedCount;
 
-    console.log(`✅ Internal mentor import complete: ${insertedCount} inserted, ${updatedCount} updated, ${failedCount} failed`);
 
     res.json({
       success: true,
@@ -790,7 +785,7 @@ router.post('/internal-mentors', audit('mentors.import-internal', (req) => ({ ro
       errors: errors.length > 0 ? errors.slice(0, 10) : undefined
     });
   } catch (error) {
-    console.error('❌ Internal mentor import error:', error);
+    console.error('[internal mentor import] failed:', redact(error.message));
     res.status(500).json({ success: false, message: error.message });
   }
 });

@@ -2,6 +2,7 @@ const express = require('express');
 const { getYearDb } = require('../db/connection');
 const { getMailDraftModel } = require('../models/MailDraft');
 const { audit } = require('../middleware/audit');
+const { redact } = require('../utils/redact');
 
 const router = express.Router();
 
@@ -12,7 +13,6 @@ const DEFAULT_EVALUATION_LINK = '';
 // GET /api/mail-draft
 router.get('/', async (req, res) => {
   try {
-    console.log('📨 [mail-draft] API HIT GET /api/mail-draft');
     const MailDraft = getMailDraftModel(getYearDb(req.year));
     const draft = await MailDraft.findOne({ key: 'global' }).select('subject body evaluationLink updatedAt');
     if (!draft) {
@@ -29,7 +29,7 @@ router.get('/', async (req, res) => {
       isDefault: false,
     });
   } catch (error) {
-    console.error('❌ [mail-draft] Error loading draft:', error);
+    console.error('[mail-draft] load failed:', redact(error.message));
     return res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -41,12 +41,6 @@ router.post('/', audit('mail-draft.update', (req) => ({ subject: String(req.body
 
     const MailDraft = getMailDraftModel(getYearDb(req.year));
 
-    console.log('📨 [mail-draft] API HIT POST /api/mail-draft');
-    console.log('📦 [mail-draft] Body:', JSON.stringify({
-      subject: subject ? String(subject).slice(0, 120) : subject,
-      bodyPreview: body ? String(body).slice(0, 120) : body,
-      evaluationLinkPreview: evaluationLink ? String(evaluationLink).slice(0, 120) : evaluationLink,
-    }, null, 2));
 
     if (!subject || !String(subject).trim()) {
       return res.status(400).json({ success: false, message: 'Subject is required' });
@@ -72,7 +66,6 @@ router.post('/', audit('mail-draft.update', (req) => ({ subject: String(req.body
       { new: true, upsert: true, setDefaultsOnInsert: true }
     ).select('subject body evaluationLink updatedAt');
 
-    console.log('✅ [mail-draft] Saved', { updatedAt: draft.updatedAt });
 
     return res.json({
       success: true,
@@ -80,7 +73,7 @@ router.post('/', audit('mail-draft.update', (req) => ({ subject: String(req.body
       data: { subject: draft.subject, body: draft.body, evaluationLink: draft.evaluationLink || '', updatedAt: draft.updatedAt },
     });
   } catch (error) {
-    console.error('❌ [mail-draft] Error saving draft:', error);
+    console.error('[mail-draft] save failed:', redact(error.message));
     return res.status(500).json({ success: false, message: error.message });
   }
 });

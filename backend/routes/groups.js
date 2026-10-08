@@ -11,6 +11,7 @@ const { containsRegex, exactRegex } = require('../utils/escapeRegex');
 const { requireRole } = require('../middleware/auth');
 const { audit, recordAudit } = require('../middleware/audit');
 const { conflict } = require('../middleware/errorHandler');
+const { redact } = require('../utils/redact');
 const { randomUUID } = require('crypto');
 
 const getModels = (req) => {
@@ -407,20 +408,16 @@ router.get('/list', async (req, res) => {
 });
 
 // POST export ALL groups to Excel with EXACT format
-router.post('/export', async (req, res) => {
+router.post('/export', audit('export.groups', (req) => ({ groups: Array.isArray(req.body?.groups) ? req.body.groups.length : 0 })), async (req, res) => {
   try {
     const { Group } = getModels(req);
-    console.log('📥 Export request received');
-    console.log('Request body:', JSON.stringify(req.body, null, 2));
 
     const { groups } = req.body;
 
     if (!groups || !Array.isArray(groups)) {
-      console.error('❌ Invalid groups data:', groups);
       return res.status(400).json({ success: false, message: 'Invalid groups data' });
     }
 
-    console.log(`✅ Processing ${groups.length} groups for export`);
 
     const wb = xlsx.utils.book_new();
 
@@ -464,7 +461,6 @@ router.post('/export', async (req, res) => {
     );
 
     groupsWithMentors.forEach((group, idx) => {
-      console.log(`Processing group ${idx + 1}:`, group.groupName || group.groupNumber);
 
       if (!group.students || !Array.isArray(group.students)) {
         console.error(`❌ Group ${idx + 1} has invalid students data`);
@@ -503,22 +499,19 @@ router.post('/export', async (req, res) => {
       xlsx.utils.book_append_sheet(wb, ws, sheetName.substring(0, 31)); // Excel sheet name limit
     });
 
-    console.log('📊 Creating Excel buffer...');
     const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    console.log(`✅ Buffer created, size: ${buffer.length} bytes`);
 
     res.setHeader('Content-Disposition', 'attachment; filename=student_groups.xlsx');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.send(buffer);
-    console.log('✅ Export completed successfully');
   } catch (error) {
-    console.error('❌ Export error:', error.message);
+    console.error('[groups export] failed:', redact(error.message));
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // POST export SINGLE group to Excel with EXACT format
-router.post('/export-single', async (req, res) => {
+router.post('/export-single', audit('export.group', (req) => ({ groupId: req.body?.group?._id, group: req.body?.group?.groupName })), async (req, res) => {
   try {
     const { Group } = getModels(req);
     const { group } = req.body;
@@ -658,7 +651,7 @@ router.post('/random-pick', async (req, res) => {
 });
 
 // POST export random picked students to Excel
-router.post('/export-random', async (req, res) => {
+router.post('/export-random', audit('export.random-students', (req) => ({ rows: Array.isArray(req.body?.students) ? req.body.students.length : 0 })), async (req, res) => {
   try {
     const { Group } = getModels(req);
     const { students } = req.body;

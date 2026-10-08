@@ -8,6 +8,7 @@ const { getMailDraftModel } = require('../models/MailDraft');
 const { getSenderEmailModel } = require('../models/SenderEmail');
 const { decryptString } = require('../utils/crypto');
 const { audit } = require('../middleware/audit');
+const { redact } = require('../utils/redact');
 
 const router = express.Router();
 
@@ -177,7 +178,6 @@ async function resolveSenderAuth(SenderEmail, senderEmailId) {
 
 async function sendGroupMail(models, { groupId, recipientType, senderEmailId, evaluationLink: overrideEvaluationLink }) {
   const { Group, MailDraft, SenderEmail } = models;
-  console.log('📨 [send-mail] Preparing mail', { groupId, recipientType, senderEmailId: senderEmailId || null });
   const group = await Group.findById(groupId)
     .populate('externalMentor', 'name email phone')
     .populate('internalMentor', 'name email phone')
@@ -252,14 +252,6 @@ async function sendGroupMail(models, { groupId, recipientType, senderEmailId, ev
   const fromEmail = senderAuth?.email || process.env.MAIL_FROM || process.env.SMTP_USER;
   const fileName = `${(group.name || 'Group').replace(/\s+/g, '_')}_students.xlsx`;
 
-  console.log('📤 [send-mail] Sending email', {
-    from: fromEmail,
-    to: recipientEmail,
-    subject,
-    recipientType: effectiveType,
-    attachment: fileName,
-    students: group.students?.length || 0,
-  });
 
   await transporter.sendMail({
     from: fromEmail,
@@ -276,7 +268,6 @@ async function sendGroupMail(models, { groupId, recipientType, senderEmailId, ev
     ],
   });
 
-  console.log('✅ [send-mail] Email sent successfully', { to: recipientEmail, groupId: String(group._id) });
 
   group.mailSent = true;
   group.mailSentAt = new Date();
@@ -305,8 +296,6 @@ router.post('/', audit('mail.send-group', (req) => ({
       SenderEmail: getSenderEmailModel(getSharedDb()),
     };
 
-    console.log('🚀 [send-mail] API HIT POST /api/send-mail');
-    console.log('📦 [send-mail] Body:', JSON.stringify({ groupId, recipientType, senderEmailId }, null, 2));
 
     if (!groupId) {
       return res.status(400).json({ success: false, message: 'groupId is required' });
@@ -326,7 +315,7 @@ router.post('/', audit('mail.send-group', (req) => ({
     });
   } catch (error) {
     const normalized = normalizeMailError(error);
-    console.error('❌ [send-mail] Error:', normalized);
+    console.error('[send-mail] failed:', normalized.code || '', redact(normalized.message));
     const status = normalized.statusCode || 500;
     return res.status(status).json({
       success: false,
@@ -349,8 +338,6 @@ router.post('/:groupId', audit('mail.send-group', (req) => ({ groupId: req.param
       SenderEmail: getSenderEmailModel(getSharedDb()),
     };
 
-    console.log('🚀 [send-mail] API HIT POST /api/send-mail/:groupId', { groupId });
-    console.log('📦 [send-mail] Body:', JSON.stringify({ recipientType, senderEmailId }, null, 2));
 
     const result = await sendGroupMail(models, { groupId, recipientType, senderEmailId, evaluationLink });
 
@@ -366,7 +353,7 @@ router.post('/:groupId', audit('mail.send-group', (req) => ({ groupId: req.param
     });
   } catch (error) {
     const normalized = normalizeMailError(error);
-    console.error('❌ [send-mail] Error:', normalized);
+    console.error('[send-mail] failed:', normalized.code || '', redact(normalized.message));
     const status = normalized.statusCode || 500;
     return res.status(status).json({
       success: false,

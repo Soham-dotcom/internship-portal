@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getInternships, createInternship } from '../api/axios';
+import { getInternships, createInternship, recordExport } from '../api/axios';
 import * as XLSX from 'xlsx';
 
 const branches = ['COMPS', 'EXTC', 'CSE', 'MCA', 'AIML', 'IT', 'MECH', 'ETRX'];
@@ -132,6 +132,7 @@ const InternshipList = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Internships');
     XLSX.writeFile(wb, `internships_${new Date().toISOString().split('T')[0]}.xlsx`);
+    recordExport('student-records', data.length);
   };
 
 

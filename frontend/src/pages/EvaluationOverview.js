@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import * as XLSX from 'xlsx';
-import { getEvaluationOverview, getEvaluationSettings, updateEvaluationSettings, updateInternship, updateMarks } from '../api/axios';
+import { getEvaluationOverview, getEvaluationSettings, updateEvaluationSettings, updateInternship, updateMarks, recordExport } from '../api/axios';
 import { isAdmin } from '../auth/session';
 import StudentHistory from '../components/StudentHistory';
 import { confirmDialog } from '../ui/feedback';
@@ -268,6 +268,7 @@ const EvaluationOverview = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Evaluation');
     XLSX.writeFile(wb, 'evaluation_data.xlsx');
+    recordExport('evaluation-scores', data.length);
   };
 
   return (

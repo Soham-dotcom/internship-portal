@@ -73,8 +73,8 @@ const isReadOnlyRequest = (req) => {
   return false;
 };
 
-// Not year data: lock management itself, and the shared sender-email list.
-const EXEMPT_PREFIXES = ['/year-settings', '/sender-emails'];
+// Not year data: lock management, the shared sender-email list, the audit trail and accounts.
+const EXEMPT_PREFIXES = ['/year-settings', '/sender-emails', '/audit-logs', '/users'];
 
 /** Mounted on /api after authentication: refuses writes to a locked year. */
 const enforceYearLock = async (req, res, next) => {

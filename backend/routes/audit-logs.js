@@ -3,10 +3,27 @@ const { getSharedDb } = require('../db/connection');
 const { getAuditLogModel } = require('../models/AuditLog');
 const { requireRole } = require('../middleware/auth');
 const { escapeRegex } = require('../utils/escapeRegex');
+const { audit } = require('../middleware/audit');
 
 const router = express.Router();
 
-// The audit log is for administrators only: it shows who did what across the year.
+const EXPORT_KINDS = new Set(['student-records', 'evaluation-scores', 'generated-groups']);
+
+// POST /api/audit-logs/export  { kind, rows }
+// Some exports are built entirely in the browser, so the server never sees them.
+// The page reports each one here, so "who downloaded student data, and when?" has
+// an answer. Any signed-in user may record their own export.
+router.post('/export', audit('export.client', (req) => ({
+  kind: String(req.body?.kind || ''),
+  rows: Number(req.body?.rows) || 0,
+})), (req, res) => {
+  if (!EXPORT_KINDS.has(String(req.body?.kind || ''))) {
+    return res.status(400).json({ success: false, message: 'Unknown export kind' });
+  }
+  return res.json({ success: true });
+});
+
+// Everything below is for administrators only: it shows who did what across the year.
 router.use(requireRole('admin'));
 
 const PAGE_SIZE_MAX = 100;

@@ -147,6 +147,10 @@ export const getAuditLogs = (params) => axiosInstance.get('/audit-logs', { param
 export const getAuditActions = () => axiosInstance.get('/audit-logs/actions');
 export const getStudentHistory = (id) => axiosInstance.get(`/internships/${id}/history`);
 
+// Exports built in the browser are reported to the audit log. Fire-and-forget: a
+// failure to record must never block someone from getting their file.
+export const recordExport = (kind, rows) => axiosInstance.post('/audit-logs/export', { kind, rows }).catch(() => {});
+
 // Year and marks locks (changes are admin only on the server)
 export const getYearSettings = () => axiosInstance.get('/year-settings');
 export const lockYear = (reason) => axiosInstance.post('/year-settings/lock', { reason });

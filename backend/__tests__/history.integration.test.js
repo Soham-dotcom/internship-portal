@@ -151,6 +151,20 @@ describe('GET /api/audit-logs', () => {
     expect(res.body.pages).toBe(Math.ceil(res.body.total / 2));
   });
 
+  it('records browser-side exports for any signed-in user, and rejects unknown kinds', async () => {
+    const ok = await as('staff').post('/api/audit-logs/export').send({ kind: 'student-records', rows: 409 });
+    expect(ok.status).toBe(200);
+    expect((await as('staff').post('/api/audit-logs/export').send({ kind: 'everything' })).status).toBe(400);
+
+    let entry = null;
+    for (let i = 0; i < 50 && !entry; i += 1) {
+      entry = await AuditLog.findOne({ action: 'export.client', success: true }).lean();
+      if (!entry) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(entry.actorUsername).toBe('test-staff');
+    expect(entry.details).toEqual({ kind: 'student-records', rows: 409 });
+  });
+
   it('lists the distinct actions for the filter', async () => {
     const res = await as('admin').get('/api/audit-logs/actions');
     expect(res.body.data).toEqual(expect.arrayContaining(['internships.create', 'internships.restore']));

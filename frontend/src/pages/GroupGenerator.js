@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { generateGroups, listGroups, unassignStudents } from '../api/groups';
 import { confirmDialog } from '../ui/feedback';
+import { recordExport } from '../api/axios';
 
 const branches = ['COMPS', 'EXTC', 'CSE', 'MCA', 'AIML', 'IT', 'MECH', 'ETRX'];
 
@@ -105,6 +106,7 @@ const GroupGenerator = () => {
         XLSX.utils.book_append_sheet(wb, ws, (group.groupName || `Group ${groups.indexOf(group) + 1}`).substring(0, 31));
       });
       XLSX.writeFile(wb, `student_groups_${new Date().toISOString().split('T')[0]}.xlsx`);
+      recordExport('generated-groups', groups.reduce((n, g) => n + (g.students?.length || 0), 0));
       setMessage({ type: 'success', text: `Exported ${groups.length} group(s) successfully.` });
     } catch (error) {
       setMessage({ type: 'error', text: `Export failed: ${error.message}` });
