@@ -4,6 +4,7 @@ const { getYearDb } = require('../db/connection');
 const { getMentorModel } = require('../models/Mentor');
 const { getInternalMentorModel } = require('../models/InternalMentor');
 const { getGroupModel } = require('../models/Group');
+const { getInternshipModel } = require('../models/Internship');
 const { audit } = require('../middleware/audit');
 
 const router = express.Router();
@@ -26,36 +27,42 @@ async function buildMentorDetails(type, req) {
   const db = getYearDb(req.year);
   const Model = resolveMentorModel(type, req);
   const Group = getGroupModel(db);
-  const mentors = await Model.find().sort({ name: 1 });
+  const Internship = getInternshipModel(db);
+  const field = type === 'internal' ? 'internalMentor' : 'externalMentor';
 
-  const mentorsWithDetails = await Promise.all(
-    mentors.map(async (mentor) => {
-      const groupQuery = type === 'internal'
-        ? { internalMentor: mentor._id }
-        : { externalMentor: mentor._id };
+  // Three queries in total, however many mentors there are. This used to run one
+  // populated query per mentor (~90 queries, ~1 s per page on production data).
+  const mentors = await Model.find().sort({ name: 1 }).lean();
+  const groups = await Group.find({ [field]: { $in: mentors.map((m) => m._id) } })
+    .select(`name students ${field}`)
+    .lean();
+  // Only active students count: Recycle Bin students are excluded, as before.
+  const activeIds = new Set((await Internship.find({ _id: { $in: groups.flatMap((g) => g.students) } })
+    .select('_id')
+    .lean()).map((s) => String(s._id)));
 
-      const assignedGroups = await Group.find(groupQuery).populate('students', 'name uid');
-      const studentsHandled = assignedGroups.reduce((sum, group) => sum + group.students.length, 0);
+  const groupsByMentor = new Map();
+  for (const group of groups) {
+    const key = String(group[field]);
+    const studentCount = group.students.filter((id) => activeIds.has(String(id))).length;
+    if (!groupsByMentor.has(key)) groupsByMentor.set(key, []);
+    groupsByMentor.get(key).push({ _id: group._id, name: group.name, studentCount });
+  }
 
-      return {
-        _id: mentor._id,
-        name: mentor.name,
-        email: mentor.email,
-        phone: mentor.phone,
-        isAssigned: mentor.isAssigned,
-        assignedGroups: assignedGroups.map(g => ({
-          _id: g._id,
-          name: g.name,
-          studentCount: g.students.length
-        })),
-        groupCount: assignedGroups.length,
-        studentsHandled,
-        type
-      };
-    })
-  );
-
-  return mentorsWithDetails;
+  return mentors.map((mentor) => {
+    const assignedGroups = groupsByMentor.get(String(mentor._id)) || [];
+    return {
+      _id: mentor._id,
+      name: mentor.name,
+      email: mentor.email,
+      phone: mentor.phone,
+      isAssigned: mentor.isAssigned,
+      assignedGroups,
+      groupCount: assignedGroups.length,
+      studentsHandled: assignedGroups.reduce((sum, g) => sum + g.studentCount, 0),
+      type,
+    };
+  });
 }
 
 // GET /api/mentors?type=external|internal
@@ -189,3 +196,6 @@ router.put('/:id', audit('mentors.update', (req) => ({ mentorId: req.params.id, 
 });
 
 module.exports = router;
+
+// Exported for measurement and tests.
+module.exports.buildMentorDetails = buildMentorDetails;
