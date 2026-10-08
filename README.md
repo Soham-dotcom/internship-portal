@@ -42,6 +42,11 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Why it is built this way:
   only read; an admin can still correct data, but must give a reason, which is recorded.
 - **Traceability:** every change is in the audit log (admin page with filters), and each
   student has a History showing who changed what, when, from what, to what.
+- **Accounts:** admins manage logins in the portal (*Users*); everyone can change their own
+  password (*My Account*). Every Excel export is audit-logged.
+- **Database rules:** MongoDB itself rejects invalid student records (`npm run schema-validation`).
+- **Privacy:** server logs contain no student or examiner personal data.
+- **CI:** every push runs all tests and the strict build (`.github/workflows/ci.yml`).
 - **Backups:** nightly encrypted backup via GitHub Actions, with a tested restore. See
   [docs/RUNBOOK.md](docs/RUNBOOK.md).
 

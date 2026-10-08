@@ -1,6 +1,6 @@
 # Architecture — SPIT Internship Management & Evaluation Portal
 
-_Last verified against the code: 2026-10-05._
+_Last verified against the code: 2026-10-09._
 
 ## 1. What it is, and who uses it
 
@@ -28,8 +28,9 @@ They exist only as data.
 | Database | MongoDB Atlas |
 | Auth | bcrypt password hash + JWT (12 h) in `localStorage`; account re-checked on every request |
 | Hosting | Frontend on Vercel, backend on Render (free tier, so it cold-starts) |
-| Tests | Jest + supertest + mongodb-memory-server: 90 unit + integration tests |
+| Tests | Jest + supertest + mongodb-memory-server: 192 backend unit + integration tests; 13 frontend unit tests; all run in CI on every push |
 | Backups | Nightly encrypted dump via GitHub Actions (`backend/scripts/backup.js`), 30-day retention |
+| Data rules | MongoDB `$jsonSchema` validation on `internships` (`backend/db/validators.js`), applied with `npm run schema-validation -- --apply` |
 
 ## 3. Component diagram
 
@@ -144,6 +145,8 @@ first (unless `--drop` + explicit flag). See `docs/RUNBOOK.md`.
 ## 6. Security model (current)
 
 - Every `/api` route past `/api/auth` requires a JWT and a permitted year.
+- Accounts are managed in the portal (*Users*, admin only); anyone can change their own password
+  (*My Account*). Password rules: 12–128 characters, not containing the username.
 - Two roles. Only `admin` may: clear all groups, delete all mentors, change evaluation weights,
   add sender emails. Enforced server-side with `requireRole('admin')`.
 - Write whitelists stop mass assignment. Regex input is escaped. Uploads are capped at 5 MB with a
@@ -156,8 +159,15 @@ first (unless `--drop` + explicit flag). See `docs/RUNBOOK.md`.
 - **Audit:** every write route records actor, role, IP, status and a PII-light summary; edits carry
   old → new values. Sign-in attempts and refused lock attempts are recorded. Admins search it at
   `/audit-log`; any user can see one student's History.
+- **Privacy:** server logs carry no personal data (routine logs removed; error logs pass through
+  `redact()`, which masks emails). Every export, server- or browser-side, is audit-logged.
+- **Dependencies:** SheetJS 0.20.3 from its official CDN, pinned by integrity hash (two high
+  advisories in 0.18.5 cleared).
 
-## 7. Known issues (review of 2026-10-04, updated 2026-10-05)
+## 7. Known issues (review of 2026-10-04, updated 2026-10-09)
+
+Also fixed 2026-10-09: the evaluator directory crashed as the first page after a restart (`MissingSchemaError`); `getGroupModel` now registers the models it references.
+
 
 Also fixed 2026-10-05: inline mark edits on the Evaluation page were silently discarded (they went to a route that ignores marks).
 
@@ -177,10 +187,10 @@ Severity: 🔴 act now · 🟠 fix soon · 🟡 when convenient.
 | 10 | ✅ | *Fixed 2026-10-05: every write route is audited, with old → new values on edits.* | |
 | 11 | 🟡 | `/analytics/stipends` uses `$toDouble`, which throws on values like `-` (17 rows in real data). The endpoint is unused by the UI. | `analytics.js:171` |
 | 12 | ✅ | *Fixed 2026-10-05: the import plan classifies rows explicitly.* Import counts "inserted" vs "updated" by comparing `createdAt`/`updatedAt` within 1 s, which is a heuristic and can be wrong. | `upload.js:695` |
-| 13 | 🟡 | Two mentor APIs (`/api/mentors` and `/api/upload/mentors*`) do the same work. N+1 queries in `buildMentorDetails`. | `mentors.js`, `upload.js` |
-| 14 | 🟡 | Logs still print emails and request bodies with emoji (mail, import, export). | `send-mail.js`, `mail-draft.js`, `groups.js` |
+| 13 | 🟡 | *N+1 fixed 2026-10-09 (3 queries, ~80 ms).* Still two mentor APIs; `/api/upload/*-with-details` is dead code with the old N+1. | `upload.js` |
+| 14 | ✅ | *Fixed 2026-10-09.* Logs printed emails and whole request bodies. | |
 | 15 | 🟡 | Two `package.json`s (root and `backend/`) with drifting versions (`nodemailer` ^7 vs ^6). The root one is what runs. | root, `backend/` |
-| 16 | 🟡 | `xlsx@0.18.5` has known CVEs (prototype pollution, ReDoS) and parses untrusted uploads on both ends. | both `package.json` |
+| 16 | ✅ | *Fixed 2026-10-09.* `xlsx@0.18.5` CVEs; upgraded to 0.20.3. | |
 | 17 | 🟡 | Repo lives in OneDrive, and cloud-synced `node_modules` causes random `errno -4094` build failures. | environment |
 
 The broader backlog (accessibility, responsive layout, pagination, CI, splitting the 1,200-line

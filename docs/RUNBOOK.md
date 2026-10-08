@@ -58,17 +58,36 @@ data unless you explicitly ask it to.
 
 ## 3. Accounts
 
+**In the portal (normal way):** an admin opens *Administration → Users* to add an account
+(username, initial password, role, academic years), change a role, disable or re-enable an
+account, or reset a password. Anyone changes their own password under *My Account* (top bar).
+
+- Give every person their **own** account, so the audit log can tell who did what.
+- Passwords: at least 12 characters, not containing the username. After a reset, tell the
+  person the new password privately and ask them to change it.
+- You can't demote or disable your own account, and the portal always keeps one active admin.
+- Changes apply on the user's **next request**. Disabling and password resets sign them out everywhere.
+
+**From a terminal (only if nobody can sign in as admin):**
+
 | Task | Command |
 |---|---|
-| List accounts | `npm run manage-users -- list` *(or `node backend/scripts/manage-users.js list`)* |
-| Create an account | `SEED_USERNAME=<name> SEED_PASSWORD="<12+ chars>" SEED_ROLE=staff node backend/scripts/seed-user.js` |
+| List accounts | `npm run manage-users -- list` |
+| Create an account | `SEED_USERNAME=<name> SEED_PASSWORD="<12+ chars>" SEED_ROLE=admin npm run seed-user` |
 | Change role | `node backend/scripts/manage-users.js set-role <username> admin\|staff` |
 | Disable / re-enable | `node backend/scripts/manage-users.js set-status <username> disabled\|active` |
-| Limit years | `node backend/scripts/manage-users.js set-years <username> 2026` (or `all`) |
 | Reset a password | `NEW_PASSWORD="<12+ chars>" node backend/scripts/set-password.js <username>` |
 
-Role, status and year changes apply on the user's **next request**: no need to wait for
-their session to expire. A password reset also signs them out everywhere.
+## 3a. Database rules (one-off, then after schema changes)
+
+MongoDB can enforce the critical rules for student records itself (UID required, marks in
+range, allowed branch values). This blocks bad data even from scripts or the Atlas web UI.
+
+1. Check first (read-only): `npm run schema-validation`. It reports how many existing records
+   break a rule, per academic year.
+2. Switch on: `npm run schema-validation -- --apply`, run with a database user that has the
+   **dbAdmin** role. The app's own user should not have it.
+3. Re-run both steps whenever `backend/db/validators.js` changes, and after creating a new academic year.
 
 ## 4. Finalising a year (locks)
 

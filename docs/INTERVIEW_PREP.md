@@ -139,6 +139,34 @@ Yes, open redirect: `/login?next=https://evil.com` would bounce a user to a phis
 real sign-in. `safeNextPath` only accepts same-app paths: it must start with "/", not "//", and
 not point back to /login. It's unit-tested.
 
+**Q: Tell me about a performance fix. How did you know it worked?**
+The evaluator directory ran one database query per mentor just to count students: about 90 queries
+and roughly a second per load. I measured that first, on the real production data, read-only.
+Then I rewrote it as three queries counted in memory and measured again the same way: about 80 ms.
+I also proved the output was identical to the old version for both years before keeping it.
+
+**Q: Did you add indexes?**
+No, on purpose. I checked the query plans: full scans of 41 groups and 410 students take 0 ms. An
+index would only slow down writes. I wrote down the point at which to revisit (about 10k records,
+or any query over 50 ms).
+
+**Q: A bug you found by accident?**
+While measuring, the evaluator directory threw "Schema hasn't been registered". Mongoose's populate
+needs the referenced model registered on that connection, and only *other* pages registered it.
+So after any restart (every deploy, every cold start), opening that page first crashed. Fix: the
+Group model registers the models it references. A test runs it in a fresh process.
+
+**Q: Why enforce validation in the database if the app already validates?**
+App validation only covers writes through the app. A script or an edit in the Atlas UI skips it.
+`$jsonSchema` makes MongoDB itself refuse a record without a UID or with an out-of-range mark. I ran
+a read-only check on production first: one record had `null` viva marks, a real "not entered yet"
+state, so I widened the rule instead of changing the data.
+
+**Q: How did you handle a vulnerable dependency with no fix on npm?**
+`npm audit` flagged two high advisories in SheetJS, reachable because we parse uploaded files.
+SheetJS stopped publishing to npm, so I installed the fixed version from its official CDN, pinned by
+an integrity hash in the lockfile, then re-tested every Excel path with real files.
+
 ## Failure cases and scaling
 
 **Q: What happens if the database goes down?**
