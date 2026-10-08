@@ -15,7 +15,8 @@
     "set-password": "node backend/scripts/set-password.js",
     "manage-users": "node backend/scripts/manage-users.js",
     "backup": "node backend/scripts/backup.js",
-    "restore": "node backend/scripts/restore.js"
+    "restore": "node backend/scripts/restore.js",
+    "schema-validation": "node backend/scripts/schema-validation.js"
   },
   "jest": {
     "testEnvironment": "node",
