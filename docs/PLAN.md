@@ -55,8 +55,17 @@ mistake · keep it **Smooth** so people don't make mistakes in the first place.
 | D3 | Loading skeletons and empty states | ✅ plus real error states |
 | D4 | Session-expiry warning, return to the same page | ✅ |
 
-### Phase 5: everything else
-A9 concurrent-edit protection · A10 MongoDB schema validation · A11 least-privilege DB user
-· ~~A12 type-to-confirm~~ (done in phase 4) · B2 user-management page · B4 change-password page · B6 httpOnly
-cookie / 2FA · C1–C5 privacy (field projection, export audit, log redaction, `xlsx` upgrade,
-retention) · D5–D7 speed, stale-request cancelling, mobile · E CI and a staging database.
+### Phase 5: everything else (2026-10-09)
+| ID | Item | Status |
+|---|---|---|
+| E | CI | ✅ `.github/workflows/ci.yml` (staging database not set up) |
+| C2, C3 | Export audit, log redaction | ✅ |
+| C4 | `xlsx` upgrade | ✅ 0.20.3 from SheetJS CDN |
+| B4 | Change-password page | ✅ |
+| B2 | User-management page | ✅ |
+| A10 | MongoDB schema validation | ✅ code + check (0 violations); **`--apply` on production needs Soham's OK** |
+| D5 | Speed | ✅ evaluator directory 90 → 3 queries; indexes measured and not needed yet |
+| D6 | Stale-request cancelling | ✅ group search |
+| A9, B6, D7 | Concurrent edits, cookie/2FA, mobile | ⏸ skipped on request |
+| A11 | Least-privilege DB user | ⏳ Atlas setting, Soham |
+| C1, C5 | Field projection, retention | ⏳ not started |

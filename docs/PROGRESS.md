@@ -2,6 +2,51 @@
 
 Newest first. What was built, how it was tested, what broke and how it was fixed.
 
+## 2026-10-09: Phase 5: hardening the rest
+
+**Built** (skipped on request: concurrent-edit protection, cookie sessions / 2FA, mobile layout)
+- **CI** (`.github/workflows/ci.yml`): backend tests, plus frontend tests and the `CI=true`
+  build on every push.
+- **Privacy:** personal data removed from server logs; `redact()` on error logs; every export
+  audited, including browser-side ones.
+- **Accounts:** *My Account* change-password page; admin *Users* page; `/api/auth/change-password`, `/api/users`.
+- **Database validation:** `backend/db/validators.js` + `npm run schema-validation` (read-only
+  unless `--apply`).
+- **Speed:** evaluator directory 90 → 3 queries (~1 s → ~80 ms on production data); stale group
+  searches cancelled.
+- **Security:** SheetJS 0.18.5 → 0.20.3 (two high advisories cleared in all three installs).
+
+**Tested**
+- Backend: **192 tests** in 21 suites. New: password rules, change password, user management
+  (incl. abuse cases), DB validation, cold-start registration, mentor counts with the Recycle Bin,
+  export audit.
+- Frontend: 13 unit tests; clean `npm ci` + `CI=true` build.
+- **In the browser** (throwaway local replica set):
+  - **Accounts:** create (weak password refused), disable (then refused at sign-in), reset
+    (signed out), sign-in with the reset password, change password (wrong current refused,
+    mismatch caught, old password dead); staff blocked from Users.
+  - **Audit:** every account action and export audit-logged; the server printed nothing beyond
+    startup lines.
+  - **Search:** cancellation proven by holding back the first query's request.
+  - **Excel:** student import from a real `.xlsx` (dates exact), server-side marks import (decimal
+    kept), server-side export (valid xlsx), browser export.
+- **Production (read-only):** schema check (0 violations); mentor timing before and after, with
+  output proven identical.
+
+**Bugs found and fixed**
+- **Evaluator directory crashed as the first page after any restart** (MissingSchemaError),
+  found by the measurement script.
+- **Group export logged every student's details** to the server logs.
+- One production record's `null` viva marks would have tripped the first draft of the DB rules;
+  the rule was corrected, not the data.
+
+**Noticed, not acted on**
+- `/api/upload/mentors-with-details` and `/internal-mentors-with-details` are dead (no frontend
+  caller) and have the old N+1 pattern.
+- `npm audit` still reports other advisories (root 41, frontend ~94, backend ~10), mostly in
+  build/test tooling (`react-scripts`, `jest`); not triaged in this phase.
+- Two separate backend installs (root and `backend/`) exist; which one Render uses is still unconfirmed.
+
 ## 2026-10-05: Phase 4: smoothness
 
 **Built**

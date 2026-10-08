@@ -5,6 +5,98 @@ Newest first.
 
 ---
 
+## 2026-10-09: Phase 5 scope: what was built, what was deliberately skipped
+
+**Built:** CI, privacy (log redaction, export audit), accounts (change password, admin user
+management), database-level validation, speed (evaluator directory, stale-search cancelling),
+and the SheetJS security upgrade.
+**Skipped on Soham's instruction:** concurrent-edit protection (A9), cookie-based sessions / 2FA
+(B6), and the mobile layout pass (D7). They stay listed in `PLAN.md`.
+
+---
+
+## 2026-10-09: Upgrade SheetJS from its official CDN, not npm
+
+**What.** `xlsx` 0.18.5 → 0.20.3 in all three installs (root, `backend/`, `frontend/`), installed
+from `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` and pinned by an integrity hash in each lockfile.
+**Why.** `npm audit` flagged two **high** advisories (prototype pollution CVE-2023-30533, ReDoS
+CVE-2024-22363), both reachable because the portal parses *uploaded* spreadsheets. The npm
+registry has no fixed version: SheetJS stopped publishing there, and its documented channel is its own CDN.
+**Rejected.** *Switching to `exceljs`:* rewriting every import and export for no functional gain.
+*Staying on 0.18.5:* known, reachable, high-severity bugs in the code that handles untrusted files.
+**Trade-off.** Installs now depend on `cdn.sheetjs.com` being reachable, and `npm update` won't
+pick up new versions; upgrades are a deliberate URL change. The integrity hash means a tampered
+tarball fails the install instead of slipping in.
+
+---
+
+## 2026-10-09: Evaluator directory: 3 queries instead of ~90 (measured)
+
+**What.** The directory ran one populated query per mentor just to *count* students. It now runs
+three queries in total (mentors, their groups, which of those students are active) and counts in memory.
+**Measured on production data** (read-only, same machine, 5 runs each): external 90 queries /
+median 997 ms → 3 queries / 81 ms; internal 95 → 3 queries / 992 → 77 ms. Output compared and
+**identical** to the old implementation for both years.
+**Not done, by measurement:** indexes on `groups.externalMentor`, `groups.students`,
+`internships.branch` and `internships.assignedGroup`. Query plans showed full scans of 41 groups /
+410 students in **0 ms**, so an index would add write cost and no read benefit. Revisit at about
+10k records, or when any query exceeds 50 ms.
+
+**Bug found while measuring:** populating a group's students threw `MissingSchemaError` when no
+other route had registered the `Internship` model on that connection yet. In other words, the
+evaluator directory crashed if it was the first page opened after a restart, which on Render
+means after every deploy and every cold start. `getGroupModel` now registers the models it
+references. A test runs it in a fresh process to prove it.
+
+---
+
+## 2026-10-09: Database-level validation ($jsonSchema), checked before switched on
+
+**What.** MongoDB itself enforces the critical rules on `internships`: UID required, marks in range
+(or null, meaning "not entered"), allowed values for branch, gender, type and profile, and dates
+stored as dates. Extra fields are allowed. `validationLevel: "moderate"` never blocks edits to old
+records. `npm run schema-validation` is **read-only by default**, reporting violations per year;
+`--apply` switches the rules on.
+**Why.** App-level validation only covers writes that go through the app. Scripts, the Atlas web UI
+and future bugs bypass it.
+**Found while checking production:** one 2026 record stores viva marks as `null`. That's a real "not
+entered yet" state, so the rule was widened to allow it rather than "fixing" the data. After that,
+production has 0 violations.
+**Trade-off.** Applying needs a database user with `collMod` (the app user shouldn't have it), so
+it's a deliberate, one-off admin step.
+
+---
+
+## 2026-10-09: Accounts managed in the portal, with lock-out protection
+
+**What.** *My Account* (change your own password) and an admin *Users* page (create, change role,
+status and years, reset password), backed by `/api/auth/change-password` and `/api/users`.
+**Rules.**
+- Changing a password requires the current one, and is rate-limited like login.
+- Password rules: 12–128 characters, not containing the username.
+- Admins can't demote or disable themselves, and the portal always keeps one active admin.
+  Legacy records with no username never count; production has one with `role: admin`.
+- Disabling an account or resetting a password signs that user out everywhere.
+- Hashes and session internals never leave the server, and everything is audited without passwords.
+
+**Why.** Running `manage-users.js` from a terminal meant only the developer could manage accounts,
+so in practice both people shared one login, which defeats the audit log.
+
+---
+
+## 2026-10-09: Privacy: no personal data in server logs; every export audited
+
+**What.** 24 routine `console.log` calls removed. Group export used to print the **entire request
+body, every student's details**, on every export. Remaining error logs pass through `redact()`,
+which masks email addresses, because MongoDB duplicate-key errors contain them. Server-side
+exports are audited. Browser-side exports (records, evaluation scores, generated groups) report
+themselves to `POST /api/audit-logs/export`.
+**Trade-off.** The browser report is fire-and-forget: a failed report never blocks the download.
+It records honest use, not a determined bypass; someone with API access can always fetch data
+directly, and those fetches are authenticated reads.
+
+---
+
 ## 2026-10-05: In-app dialogs and toasts as a tiny module store
 
 **What.** `ui/feedback.js` exposes `confirmDialog`, `promptDialog` and `toast` as plain async
